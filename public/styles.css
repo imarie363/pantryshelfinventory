@@ -76,7 +76,7 @@ h2 { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spa
   display: flex; flex-direction: column; gap: 6px;
 }
 .hero .brand { display: flex; align-items: center; gap: 12px; }
-.hero .brand img { width: 40px; height: 40px; border-radius: 11px; box-shadow: 0 2px 8px rgba(0, 0, 0, .25); }
+.hero .brand > img { width: 40px; height: 40px; border-radius: 11px; box-shadow: 0 2px 8px rgba(0, 0, 0, .25); }
 .hero p { margin: 0; color: var(--hero-muted); }
 .tally { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0 -34px; }
 .tally button {
@@ -262,7 +262,7 @@ input::placeholder { color: color-mix(in srgb, var(--muted) 75%, transparent); }
 .login-page { min-height: 100vh; display: grid; place-items: center; }
 .login { width: min(400px, 100%); margin: 0 auto; padding: 32px 26px; background: var(--surface); border-radius: 24px; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 22px; }
 .login .brand { display: flex; align-items: center; gap: 12px; }
-.login .brand img { width: 48px; height: 48px; border-radius: 13px; }
+.login .brand > img { width: 48px; height: 48px; border-radius: 13px; }
 .login .error { color: var(--expired); margin: 0; min-height: 1.4em; font-weight: 700; }
 @media (max-width: 380px) { .row2 { grid-template-columns: 1fr; } h1 { font-size: 1.8rem; } .tally b { font-size: 1.6rem; } }
 @media (prefers-reduced-motion: no-preference) { .item, .btn, .tabs button, .recipe { transition: background-color .15s ease, box-shadow .15s ease, border-color .15s ease; } }
@@ -423,3 +423,13 @@ input[type="range"] { padding: 0; min-height: 0; height: 32px; border: 0; backgr
 .activity li.a-added .avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent-2); }
 .activity li .avatar { margin: 4px 6px 4px 4px; }
 @media (max-width: 480px) { .rem-form > .row2 { grid-template-columns: 1fr; } }
+
+/* ---------- version 2.3: avatars are always perfect circles ---------- */
+.avatar { aspect-ratio: 1; flex: 0 0 auto; box-sizing: border-box; border-radius: 50%; overflow: hidden; }
+.avatar.sm { min-width: 26px; min-height: 26px; }
+.avatar.md { min-width: 44px; min-height: 44px; }
+.avatar.xl { min-width: 112px; min-height: 112px; }
+.avatar img { width: 100% !important; height: 100% !important; border-radius: 50% !important; box-shadow: none !important; object-fit: cover; }
+.avatar-btn { aspect-ratio: 1; line-height: 0; }
+.avatar-big .avatar { align-self: center; }
+.people-table .who .avatar { vertical-align: middle; }
