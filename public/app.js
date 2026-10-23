@@ -14,6 +14,9 @@
   let tab = "shelf";
   let recipesFor = null; // items fingerprint the recipe list was built for
   let me = null;           // who is logged in on this phone
+  let people = [];         // everyone with their own login, with avatars
+  let emojiChoices = [];
+  let passwordProtected = true;
   const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
   let place = store.get("pantry.place") || "All";
 
@@ -32,7 +35,7 @@
       const data = await api("GET", "/api/state");
       items = new Map(Object.entries(data.items || {}));
       shopping = new Map(Object.entries(data.shopping || {}));
-      applyCover(data.cover);
+      applyCover(data.cover, data.coverPos);
       loaded = true;
       if (data.offline) {
         const when = data.savedAt ? new Date(data.savedAt).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }) : "earlier";
@@ -120,6 +123,8 @@
   function showApp(session) {
     $("#loginView").hidden = true; $("#appView").hidden = false; $("#dock").hidden = false;
     me = session.me || null;
+    passwordProtected = !!session.passwordProtected;
+    renderMeChip();
     $("#logout").hidden = !session.passwordProtected;
     $("#myPass").hidden = !me || me.id === "h";
     $("#meNote").textContent = session.offline ? "Offline right now." : me && session.passwordProtected ? `Logged in as ${me.name}${me.id === "h" ? " (the shared household password)" : ""}.` : "";
@@ -145,7 +150,7 @@
     document.querySelectorAll(".tabs button").forEach((b) => b.dataset.tab === name ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
     document.querySelectorAll(".view").forEach((v) => v.hidden = v.id !== "view-" + name);
     if (name === "recipes") loadRecipes(false);
-    if (name === "settings") loadSettings();
+    if (name === "settings") { loadSettings(); requestAnimationFrame(fitPreview); }
     if (name === "stats") loadHistory();
   }
   document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
@@ -504,15 +509,90 @@
     restore({ "Content-Type": "application/json" }, file, `"${file.name}"`);
   });
 
+  // ---------- avatars ----------
+  const personByName = (name) => people.find((p) => p.name === name);
+  // A round avatar: their photo, their emoji, or the first letter of their name
+  function avatarEl(p, cls = "avatar") {
+    const a = p?.avatar;
+    if (p?.id === "h") return el("span", { class: cls + " emoji", "aria-hidden": "true" }, "🏠");
+    if (a?.photo) return el("span", { class: cls, "aria-hidden": "true" }, el("img", { src: `/api/people/${p.id}/avatar?v=${a.photo}`, alt: "", loading: "lazy" }));
+    if (a?.emoji) return el("span", { class: cls + " emoji", "aria-hidden": "true" }, a.emoji);
+    return el("span", { class: cls, "aria-hidden": "true" }, (p?.name || "?").slice(0, 1).toUpperCase());
+  }
+  const avatarFor = (name, cls) => avatarEl(personByName(name) || (name === "Household" ? { id: "h", name } : { name }), cls);
+  async function loadPeopleData() {
+    try { const r = await api("GET", "/api/people"); people = r.people; emojiChoices = r.emoji || []; renderMeChip(); return r; }
+    catch (err) { if (err.status !== 401) console.warn("Couldn't load people", err); return null; }
+  }
+  function renderMeChip() {
+    const chip = $("#meChip");
+    chip.hidden = !me || !passwordProtected;
+    if (chip.hidden) return;
+    const p = me.id === "h" ? { id: "h", name: "Household" } : personByName(me.name) || me;
+    chip.replaceChildren(avatarEl(p, "avatar sm"), el("span", {}, p.name));
+    chip.setAttribute("aria-label", `Logged in as ${p.name}. Open settings`);
+  }
+  $("#meChip").addEventListener("click", () => { showTab("settings"); });
+
+  let avatarFor_ = null; // person the avatar dialog is for
+  function openAvatar(p) {
+    avatarFor_ = p;
+    $("#avatar-h").textContent = p.id === me?.id ? "Your photo" : `Photo for ${p.name}`;
+    $("#avatarPreview").replaceChildren(avatarEl(p, "avatar xl"));
+    $("#avatarRemove").hidden = !p.avatar;
+    $("#emojiGrid").replaceChildren(...emojiChoices.map((e) => el("button", { type: "button", "aria-pressed": String(p.avatar?.emoji === e), "aria-label": `Avatar ${e}`, onclick: () => setAvatar({ emoji: e }) }, e)));
+    if (!$("#avatarDlg").open) $("#avatarDlg").showModal();
+  }
+  async function afterAvatar(avatar) {
+    await loadPeopleData(); loadPeople();
+    const p = people.find((x) => x.id === avatarFor_?.id);
+    if (p) openAvatar(p);
+    if (tab === "stats") loadHistory();
+    toast(avatar ? "Photo updated" : "Photo removed");
+  }
+  async function setAvatar(body) {
+    try { const r = await api("PUT", `/api/people/${avatarFor_.id}/avatar`, body); await afterAvatar(r.avatar); }
+    catch (err) { if (err.status !== 401) toast(err.message); }
+  }
+  // Square-crop the photo from its middle and shrink it to 256 x 256 before upload
+  async function squareAvatar(file) {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image(); img.src = url; await img.decode();
+      const side = Math.min(img.naturalWidth, img.naturalHeight), cv = document.createElement("canvas");
+      cv.width = cv.height = 256;
+      cv.getContext("2d").drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 256, 256);
+      return await new Promise((r) => cv.toBlob(r, "image/jpeg", 0.85));
+    } finally { URL.revokeObjectURL(url); }
+  }
+  $("#avatarInput").addEventListener("change", async (e) => {
+    const file = e.target.files?.[0]; e.target.value = ""; if (!file || !avatarFor_) return;
+    try {
+      const blob = await squareAvatar(file);
+      const res = await fetch(`/api/people/${avatarFor_.id}/avatar`, { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body: blob, credentials: "same-origin" });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) return showLogin();
+      if (!res.ok) throw new Error(data.error || "Couldn't upload the photo.");
+      await afterAvatar(data.avatar);
+    } catch (err) { toast(err.message || "Couldn't upload the photo. Try again."); }
+  });
+  $("#avatarRemove").addEventListener("click", async () => {
+    try { await api("DELETE", `/api/people/${avatarFor_.id}/avatar`); await afterAvatar(null); } catch (err) { if (err.status !== 401) toast(err.message); }
+  });
+
   // ---------- people ----------
   let passFor = null; // person id the password dialog is for
   async function loadPeople() {
     try {
-      const r = await api("GET", "/api/people");
+      const r = await loadPeopleData();
+      if (!r) throw new Error("people");
       $("#hhNote").textContent = r.householdPassword ? "The household password keeps working too." : "";
       $("#peopleList").replaceChildren(...r.people.map((p) => el("li", {},
-        el("span", { class: "who" }, el("span", { class: "avatar", "aria-hidden": "true" }, p.name.slice(0, 1).toUpperCase()), p.name, p.id === r.me?.id ? el("em", {}, " (you)") : null),
+        el("span", { class: "who" },
+          el("button", { class: "avatar-btn", type: "button", "aria-label": `Change the photo for ${p.name}`, onclick: () => openAvatar(p) }, avatarEl(p, "avatar md"), el("span", { class: "cam", "aria-hidden": "true" }, icon("image"))),
+          p.name, p.id === r.me?.id ? el("em", {}, " (you)") : null),
         el("span", { class: "tools" },
+          el("button", { class: "linkish", type: "button", onclick: () => openAvatar(p) }, "Photo"),
           el("button", { class: "linkish", type: "button", onclick: () => openPass(p) }, "New password"),
           p.id === r.me?.id ? null : el("button", { class: "linkish danger", type: "button", onclick: () => removePerson(p) }, "Remove")))));
       $("#peopleList").hidden = !r.people.length;
@@ -569,8 +649,10 @@
       $("#st-top-card").hidden = !h.topWasted.length;
       $("#st-top").replaceChildren(...h.topWasted.map((w) => el("li", {}, el("span", {}, w.name), el("b", {}, String(w.count)))));
       $("#st-people-card").hidden = !h.people.length;
-      $("#st-people").replaceChildren(...h.people.map((p) => el("tr", {}, el("th", { scope: "row" }, p.name), el("td", {}, String(p.added || 0)), el("td", {}, String(p.used || 0)), el("td", {}, String(p.wasted || 0)))));
+      if (!people.length) await loadPeopleData();
+      $("#st-people").replaceChildren(...h.people.map((p) => el("tr", {}, el("th", { scope: "row" }, el("span", { class: "who" }, avatarFor(p.name, "avatar sm"), p.name)), el("td", {}, String(p.added || 0)), el("td", {}, String(p.used || 0)), el("td", {}, String(p.wasted || 0)))));
       $("#st-recent").replaceChildren(...(h.recent.length ? h.recent.map((e) => el("li", { class: "a-" + e.outcome },
+        avatarFor(e.by, "avatar sm"),
         el("span", {}, el("b", {}, e.by), ` ${OUT[e.outcome] || e.outcome} `, (+e.qty === 1 && (!e.unit || e.unit === "pcs")) || !+e.qty ? "" : `${+e.qty} ${e.unit || ""} of `.replace(" of", e.unit ? " of" : ""), el("b", {}, e.name)),
         el("small", {}, ago(e.at)))) : [el("li", { class: "muted" }, "Nothing yet.")]));
     } catch (err) { if (err.status !== 401) $("#st-note").textContent = "Couldn't load the history."; }
@@ -704,8 +786,12 @@
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch((e) => console.warn("Offline support unavailable:", e));
 
   // ---------- cover photo ----------
-  let coverShown;
-  function applyCover(v) {
+  let coverShown, coverPos = { x: 50, y: 50 }, coverImg = null, posDirty = false;
+  function applyCover(v, pos) {
+    if (pos && !posDirty) coverPos = pos;
+    const where = `${coverPos.x}% ${coverPos.y}%`;
+    for (const node of [document.querySelector(".hero"), $("#coverPreview")]) node.style.setProperty("--cover-pos", where);
+    $("#coverX").value = coverPos.x; $("#coverY").value = coverPos.y;
     if (v === coverShown) return;
     coverShown = v;
     for (const node of [document.querySelector(".hero"), $("#coverPreview")]) {
@@ -714,7 +800,53 @@
     }
     $("#coverEmpty").hidden = !!v;
     $("#coverRemove").hidden = !v;
+    $("#coverHint").hidden = $("#coverSliders").hidden = !v;
+    coverImg = null;
+    if (v) { const img = new Image(); img.src = `/cover.jpg?v=${encodeURIComponent(v)}`; img.decode().then(() => { coverImg = img; fitPreview(); }).catch(() => {}); }
   }
+  // Make the preview the same shape as the header, so what you see there is what the header shows
+  function fitPreview() {
+    const hero = document.querySelector(".hero"), pv = $("#coverPreview");
+    if (hero.offsetWidth && hero.offsetHeight) pv.style.setProperty("--ratio", `${hero.offsetWidth} / ${hero.offsetHeight}`);
+    if (!coverImg) return;
+    // A slider does nothing when the photo already fits that way
+    const box = pv.getBoundingClientRect(), o = overflow(box);
+    $("#coverX").disabled = o.x < 1; $("#coverY").disabled = o.y < 1;
+  }
+  function overflow(box) {
+    if (!coverImg) return { x: 0, y: 0 };
+    const sc = Math.max(box.width / coverImg.naturalWidth, box.height / coverImg.naturalHeight);
+    return { x: coverImg.naturalWidth * sc - box.width, y: coverImg.naturalHeight * sc - box.height };
+  }
+  window.addEventListener("resize", fitPreview);
+  let posTimer;
+  function setPos(x, y) {
+    coverPos = { x: Math.round(Math.min(100, Math.max(0, x))), y: Math.round(Math.min(100, Math.max(0, y))) };
+    posDirty = true; applyCover(coverShown);
+    clearTimeout(posTimer);
+    posTimer = setTimeout(async () => {
+      try { await api("PUT", "/api/cover/position", coverPos); } catch (err) { if (err.status !== 401) toast("Couldn't save the position."); }
+      posDirty = false;
+    }, 500);
+  }
+  $("#coverX").addEventListener("input", (e) => setPos(+e.target.value, coverPos.y));
+  $("#coverY").addEventListener("input", (e) => setPos(coverPos.x, +e.target.value));
+  // Drag the photo: moving it down shows more of its top
+  let drag = null;
+  $("#coverPreview").addEventListener("pointerdown", (e) => {
+    if (!coverShown || !coverImg) return;
+    drag = { x: e.clientX, y: e.clientY, pos: { ...coverPos }, o: overflow($("#coverPreview").getBoundingClientRect()) };
+    $("#coverPreview").setPointerCapture(e.pointerId); $("#coverPreview").classList.add("dragging");
+  });
+  $("#coverPreview").addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const dx = drag.o.x ? (e.clientX - drag.x) / drag.o.x * 100 : 0, dy = drag.o.y ? (e.clientY - drag.y) / drag.o.y * 100 : 0;
+    setPos(drag.pos.x - dx, drag.pos.y - dy);
+  });
+  const endDrag = () => { drag = null; $("#coverPreview").classList.remove("dragging"); };
+  $("#coverPreview").addEventListener("pointerup", endDrag);
+  $("#coverPreview").addEventListener("pointercancel", endDrag);
+
   // Shrink the photo on the phone before upload: 1800px wide JPEG is plenty for a header
   async function shrink(file) {
     const url = URL.createObjectURL(file);
@@ -736,7 +868,7 @@
       const data = await res.json().catch(() => ({}));
       if (res.status === 401) return showLogin();
       if (!res.ok) throw new Error(data.error || "Couldn't upload the photo. Try again.");
-      applyCover(data.cover); toast("Cover photo updated");
+      posDirty = false; applyCover(data.cover, data.coverPos); toast("Cover photo updated. Drag it to choose which part shows.");
     } catch (err) { toast(err.message || "Couldn't upload the photo. Try again."); }
   });
   $("#coverRemove").addEventListener("click", async () => {
@@ -930,6 +1062,7 @@
     try { session = await api("GET", "/api/session"); } catch (e) { if (e.status !== 401) setStatus("Can't reach the server. Check your connection and reload."); return; }
     showApp(session);
     await refresh();
+    loadPeopleData();
     openFromHash();
     clearInterval(pollTimer);
     pollTimer = setInterval(() => { if (document.visibilityState === "visible") refresh(); }, 20000);

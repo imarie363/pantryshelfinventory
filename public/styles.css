@@ -269,16 +269,17 @@ input::placeholder { color: color-mix(in srgb, var(--muted) 75%, transparent); }
 
 /* ---------- cover photo ---------- */
 .hero.has-cover {
-  background: linear-gradient(180deg, rgba(12, 22, 9, .45) 0%, rgba(12, 22, 9, .7) 100%), var(--cover) center / cover no-repeat, var(--hero);
+  background: linear-gradient(180deg, rgba(12, 22, 9, .45) 0%, rgba(12, 22, 9, .7) 100%), var(--cover) var(--cover-pos, center) / cover no-repeat, var(--hero);
   padding-top: calc(44px + env(safe-area-inset-top, 0px));
 }
 .hero.has-cover h1, .hero.has-cover p { text-shadow: 0 1px 8px rgba(0, 0, 0, .45); }
 .hero.has-cover p { color: #e6efdc; }
 .cover-preview {
-  aspect-ratio: 16 / 7; max-width: 100%; border-radius: 14px; background: linear-gradient(160deg, var(--hero-2), var(--hero));
+  aspect-ratio: var(--ratio, 16 / 7); max-width: 100%; border-radius: 14px; background: linear-gradient(160deg, var(--hero-2), var(--hero));
   display: grid; place-items: center; color: var(--hero-muted); font-size: .88rem; text-align: center; padding: 12px; overflow: hidden;
 }
-.cover-preview.has-cover { background: var(--cover) center / cover no-repeat; }
+.cover-preview.has-cover { background: var(--cover) var(--cover-pos, center) / cover no-repeat; cursor: grab; touch-action: none; user-select: none; }
+.cover-preview.dragging { cursor: grabbing; outline: 3px solid color-mix(in srgb, var(--accent-2) 55%, transparent); outline-offset: 2px; }
 
 /* ---------- reminder settings form ---------- */
 .rem-form { gap: 18px; }
@@ -377,3 +378,48 @@ input::placeholder { color: color-mix(in srgb, var(--muted) 75%, transparent); }
   background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-weight: 700; font-size: .85rem;
 }
 .steps .icon { width: 18px; height: 18px; vertical-align: -3px; color: var(--accent); }
+
+/* ---------- version 2.2: form fit on iPhone ---------- */
+/* iOS gives time and date boxes a fixed minimum width, which pushed "Time" into "Look ahead" */
+.row2 > * { min-width: 0; }
+input[type="time"], input[type="date"] { -webkit-appearance: none; appearance: none; min-width: 0; max-width: 100%; display: block; text-align: left; }
+input::-webkit-date-and-time-value { text-align: left; }
+input[type="range"] { padding: 0; min-height: 0; height: 32px; border: 0; background: none; accent-color: var(--accent); box-shadow: none; }
+.sliders .field > label { font-size: .82rem; color: var(--muted); }
+
+/* ---------- avatars ---------- */
+.avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center;
+  font-family: var(--font-display); flex: none; overflow: hidden; line-height: 1; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.avatar.emoji { font-size: 1.05em; background: var(--surface-2); }
+.avatar.sm { width: 26px; height: 26px; font-size: .78rem; }
+.avatar.sm.emoji { font-size: .95rem; }
+.avatar.md { width: 44px; height: 44px; font-size: 1.1rem; }
+.avatar.md.emoji { font-size: 1.5rem; }
+.avatar.xl { width: 112px; height: 112px; font-size: 2.6rem; }
+.avatar.xl.emoji { font-size: 3.6rem; }
+.avatar-big { display: flex; justify-content: center; }
+.avatar-btn { position: relative; border: 0; padding: 0; background: none; cursor: pointer; border-radius: 50%; flex: none; }
+.avatar-btn .cam { position: absolute; right: -3px; bottom: -3px; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: var(--accent-ink);
+  display: grid; place-items: center; box-shadow: 0 0 0 2px var(--surface); }
+.avatar-btn .cam .icon { width: 12px; height: 12px; stroke-width: 2.2; }
+.people .who { gap: 12px; }
+.people-table .who { display: inline-flex; align-items: center; gap: 8px; }
+.emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(48px, 1fr)); gap: 8px; }
+.emoji-grid button { font-size: 1.6rem; line-height: 1; aspect-ratio: 1; border-radius: 14px; border: 1.5px solid var(--line); background: var(--surface); cursor: pointer; }
+.emoji-grid button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent); }
+.field-label { font-size: 0.88rem; font-weight: 700; }
+.me-chip { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; border: 0; cursor: pointer; font: inherit; font-weight: 700; font-size: .85rem;
+  color: var(--hero-ink); background: rgba(255, 255, 255, .14); padding: 4px 12px 4px 4px; border-radius: 999px; max-width: 45%; backdrop-filter: blur(4px); }
+.me-chip > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.me-chip .avatar { background: rgba(255, 255, 255, .9); }
+.hero .brand { flex-wrap: nowrap; min-width: 0; }
+/* activity rows: the avatar replaces the dot, ringed by what happened */
+.activity li { padding-left: 2px; align-items: center; justify-content: flex-start; }
+.activity li::before { display: none; }
+.activity li > span:not(.avatar) { flex: 1; }
+.activity li.a-used .avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ok); }
+.activity li.a-wasted .avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--expired); }
+.activity li.a-added .avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent-2); }
+.activity li .avatar { margin: 4px 6px 4px 4px; }
+@media (max-width: 480px) { .rem-form > .row2 { grid-template-columns: 1fr; } }

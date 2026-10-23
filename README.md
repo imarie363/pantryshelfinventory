@@ -74,7 +74,7 @@ The tunnel's status in Cloudflare should turn **Healthy**. Open `https://pantry.
 
 ## People
 
-Under **Settings > People**, add a name and password for each person. The login screen then asks for a name; leaving the name empty still works with the household password. Anyone logged in can add or remove people and set a new password. Changing a password logs that person out on their other phones.
+Under **Settings > People**, add a name and password for each person. The login screen then asks for a name; leaving the name empty still works with the household password. Tap a person's picture to give them a photo (cropped to a circle) or pick an emoji avatar; it shows in the header, the People list and the History tab. Anyone logged in can add or remove people and set a new password. Changing a password logs that person out on their other phones.
 
 ## Phone notifications
 

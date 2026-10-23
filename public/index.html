@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
-<link rel="stylesheet" href="/styles.css?v=2.1">
+<link rel="stylesheet" href="/styles.css?v=2.2">
 </head>
 <body>
 <svg width="0" height="0" class="visually-hidden" aria-hidden="true">
@@ -53,7 +53,7 @@
 
 <div class="wrap" id="appView" hidden>
   <header class="hero">
-    <div class="brand"><img src="/icon-192.png" alt=""><h1>Pantry Shelf</h1></div>
+    <div class="brand"><img src="/icon-192.png" alt=""><h1>Pantry Shelf</h1><button class="me-chip" id="meChip" type="button" hidden></button></div>
     <p id="today">Use what expires first.</p>
     <div class="tally" aria-label="Summary">
       <button class="t-exp" data-jump="expired"><b id="n-exp">0</b><span>Expired</span></button>
@@ -207,6 +207,11 @@
     <section class="card">
       <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-image"/></svg></span><h3>Cover photo</h3></div>
       <div class="cover-preview" id="coverPreview"><span id="coverEmpty">No photo yet. The header uses plain green.</span></div>
+      <p class="muted small" id="coverHint" hidden>Drag the photo, or use the sliders, to choose which part shows. The frame is the shape of the header on this screen.</p>
+      <div class="row2 sliders" id="coverSliders" hidden>
+        <div class="field"><label for="coverY">Up / down</label><input type="range" id="coverY" min="0" max="100" step="1"></div>
+        <div class="field"><label for="coverX">Left / right</label><input type="range" id="coverX" min="0" max="100" step="1"></div>
+      </div>
       <p class="muted small">Pick any photo, like your own pantry shelf. It's shown behind the header for everyone in the household.</p>
       <div class="tools">
         <label class="btn" for="coverInput"><svg class="icon"><use href="#i-image"/></svg>Choose photo<input id="coverInput" class="visually-hidden" type="file" accept="image/*"></label>
@@ -308,11 +313,23 @@
   </div>
 </dialog>
 
+<dialog id="avatarDlg" aria-labelledby="avatar-h">
+  <div class="sheet">
+    <div class="sheet-head"><h3 id="avatar-h">Photo</h3><button class="x" data-close aria-label="Close">×</button></div>
+    <div class="avatar-big" id="avatarPreview"></div>
+    <div class="tools">
+      <label class="btn primary" for="avatarInput"><svg class="icon"><use href="#i-image"/></svg>Choose a photo<input id="avatarInput" class="visually-hidden" type="file" accept="image/*"></label>
+      <button class="btn danger" id="avatarRemove" type="button">Remove</button>
+    </div>
+    <div class="field"><span class="field-label">Or pick an avatar</span><div class="emoji-grid" id="emojiGrid" role="group" aria-label="Avatars"></div></div>
+  </div>
+</dialog>
+
 <div class="toast" id="toast" role="status" hidden></div>
 
 <script src="/vendor/qrcode.js"></script>
 <script src="/vendor/jsQR.js"></script>
 <script src="/vendor/zxing.min.js"></script>
-<script src="/app.js?v=2.1"></script>
+<script src="/app.js?v=2.2"></script>
 </body>
 </html>

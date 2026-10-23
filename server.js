@@ -59,6 +59,10 @@ const historyDb = jsonFile("history.json", "history");  // id -> {item, name, qt
 const pushDb = jsonFile("push.json", "subs");            // id -> {sub, by, ua, createdAt}
 const ALL_DBS = [itemsDb, shoppingDb, productsDb, metaDb, settingsDb, usersDb, historyDb, pushDb];
 const COVER_FILE = path.join(DATA_DIR, "cover.jpg");
+const AVATAR_DIR = path.join(DATA_DIR, "avatars"); // one small JPEG per person, named by their id
+fs.mkdirSync(AVATAR_DIR, { recursive: true });
+// Emoji someone can pick instead of a photo
+const AVATAR_EMOJI = ["🍅", "🥕", "🧀", "🍞", "🥑", "🍋", "🍇", "🍓", "🥦", "🌶️", "🍄", "🥚", "🍌", "🍉", "🥥", "🍯", "🍪", "🧁", "☕", "🐱", "🐶", "🌻", "⭐", "🏠"];
 let version = Date.now();
 const bump = () => (version = Date.now());
 
@@ -551,7 +555,15 @@ async function serveStatic(req, res, urlPath) {
 async function api(req, res, p, me) {
   const m = (re) => p.match(re);
   let r;
-  if (p === "/api/state" && req.method === "GET") return send(res, 200, { version, items: itemsDb.data, shopping: shoppingDb.data, cover: metaDb.data.cover || null });
+  if (p === "/api/state" && req.method === "GET") return send(res, 200, { version, items: itemsDb.data, shopping: shoppingDb.data, cover: metaDb.data.cover || null, coverPos: metaDb.data.coverPos || { x: 50, y: 50 } });
+
+  // Which part of the cover photo shows: a focus point in percent, set by dragging in Settings
+  if (p === "/api/cover/position" && req.method === "PUT") {
+    const b = await readBody(req), clamp = (v) => Math.min(100, Math.max(0, Math.round(Number(v))));
+    if (!Number.isFinite(Number(b.x)) || !Number.isFinite(Number(b.y))) return send(res, 400, { error: "Bad position." });
+    metaDb.data.coverPos = { x: clamp(b.x), y: clamp(b.y) }; await metaDb.save(); bump();
+    return send(res, 200, { ok: true, coverPos: metaDb.data.coverPos });
+  }
 
   // Cover photo for the header, uploaded from Settings (the page sends a resized JPEG)
   if (p === "/api/cover" && req.method === "POST") {
@@ -559,8 +571,8 @@ async function api(req, res, p, me) {
     try { img = await readRaw(req, 4 * 1024 * 1024); } catch (e) { return send(res, 413, { error: "That photo is too large. Try a smaller one." }); }
     if (!(img[0] === 0xff && img[1] === 0xd8 && img[2] === 0xff)) return send(res, 400, { error: "That file isn't a JPEG photo." });
     await fsp.writeFile(COVER_FILE + ".tmp", img); await fsp.rename(COVER_FILE + ".tmp", COVER_FILE);
-    metaDb.data.cover = Date.now(); await metaDb.save(); bump();
-    return send(res, 200, { ok: true, cover: metaDb.data.cover });
+    metaDb.data.cover = Date.now(); metaDb.data.coverPos = { x: 50, y: 50 }; await metaDb.save(); bump();
+    return send(res, 200, { ok: true, cover: metaDb.data.cover, coverPos: metaDb.data.coverPos });
   }
   if (p === "/api/cover" && req.method === "DELETE") {
     await fsp.unlink(COVER_FILE).catch(() => {});
@@ -662,8 +674,8 @@ async function api(req, res, p, me) {
 
   // ---- people: a login for each person in the household
   if (p === "/api/people" && req.method === "GET") {
-    const people = Object.entries(usersDb.data).map(([id, u]) => ({ id, name: u.name, createdAt: u.createdAt })).sort((a, b) => a.name.localeCompare(b.name));
-    return send(res, 200, { people, me, householdPassword: !!PASSWORD });
+    const people = Object.entries(usersDb.data).map(([id, u]) => ({ id, name: u.name, createdAt: u.createdAt, avatar: u.avatar || null })).sort((a, b) => a.name.localeCompare(b.name));
+    return send(res, 200, { people, me, householdPassword: !!PASSWORD, emoji: AVATAR_EMOJI });
   }
   if (p === "/api/people" && req.method === "POST") {
     const c = cleanPerson(await readBody(req));
@@ -674,6 +686,37 @@ async function api(req, res, p, me) {
     usersDb.data[id] = { name: c.name, ...hashPassword(c.password), gen: 1, createdAt: Date.now() };
     await usersDb.save();
     return send(res, 200, { ok: true, id });
+  }
+  // Avatar: a photo (the page sends a small square JPEG) or one of the emoji
+  if ((r = m(/^\/api\/people\/([a-f0-9]{12})\/avatar$/))) {
+    const u = usersDb.data[r[1]];
+    if (!u) return send(res, 404, { error: "That person was removed." });
+    const file = path.join(AVATAR_DIR, `${r[1]}.jpg`);
+    if (req.method === "GET") {
+      try { return send(res, 200, await fsp.readFile(file), { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=31536000, immutable" }); }
+      catch { return send(res, 404, "No photo"); }
+    }
+    if (req.method === "PUT") {
+      if ((req.headers["content-type"] || "").startsWith("image/jpeg")) {
+        let img;
+        try { img = await readRaw(req, 1024 * 1024); } catch { return send(res, 413, { error: "That photo is too large." }); }
+        if (!(img[0] === 0xff && img[1] === 0xd8 && img[2] === 0xff)) return send(res, 400, { error: "That file isn't a JPEG photo." });
+        await fsp.writeFile(file + ".tmp", img); await fsp.rename(file + ".tmp", file);
+        u.avatar = { photo: Date.now() };
+      } else {
+        const { emoji } = await readBody(req);
+        if (!AVATAR_EMOJI.includes(emoji)) return send(res, 400, { error: "Pick one of the emoji." });
+        await fsp.unlink(file).catch(() => {});
+        u.avatar = { emoji };
+      }
+      await usersDb.save();
+      return send(res, 200, { ok: true, avatar: u.avatar });
+    }
+    if (req.method === "DELETE") {
+      await fsp.unlink(file).catch(() => {});
+      delete u.avatar; await usersDb.save();
+      return send(res, 200, { ok: true, avatar: null });
+    }
   }
   if ((r = m(/^\/api\/people\/([a-f0-9]{12})$/))) {
     const u = usersDb.data[r[1]];
@@ -691,6 +734,7 @@ async function api(req, res, p, me) {
       if (r[1] === me.id) return send(res, 400, { error: "You can't remove yourself. Ask someone else, or log in with the household password." });
       if (!PASSWORD && Object.keys(usersDb.data).length === 1) return send(res, 400, { error: "Keep at least one person: there's no household password to log in with." });
       delete usersDb.data[r[1]]; await usersDb.save();
+      await fsp.unlink(path.join(AVATAR_DIR, `${r[1]}.jpg`)).catch(() => {});
       return send(res, 200, { ok: true });
     }
   }
