@@ -687,9 +687,25 @@
       $("#st-recent").replaceChildren(...(h.recent.length ? h.recent.map((e) => el("li", { class: "a-" + e.outcome },
         avatarFor(e.by, "avatar sm"),
         el("span", {}, el("b", {}, e.by), ` ${OUT[e.outcome] || e.outcome} `, (+e.qty === 1 && (!e.unit || e.unit === "pcs")) || !+e.qty ? "" : `${+e.qty} ${e.unit || ""} of `.replace(" of", e.unit ? " of" : ""), el("b", {}, e.name)),
-        el("small", {}, ago(e.at)))) : [el("li", { class: "muted" }, "Nothing yet.")]));
+        el("small", {}, ago(e.at)),
+        el("button", { type: "button", class: "hist-del", "aria-label": `Remove this entry about ${e.name}`, title: "Remove", "data-id": e.id }, "×"))) : [el("li", { class: "muted" }, "Nothing yet.")]));
+      $("#st-tools").hidden = !h.recent.length;
     } catch (err) { if (err.status !== 401) $("#st-note").textContent = "Couldn't load the history."; }
   }
+
+  $("#st-recent").addEventListener("click", async (e) => {
+    const b = e.target.closest(".hist-del"); if (!b) return;
+    b.disabled = true;
+    try { await api("DELETE", `/api/history/${encodeURIComponent(b.dataset.id)}`); toast("Removed from the history"); }
+    catch (err) { if (err.status !== 401) toast(err.message); }
+    loadHistory();
+  });
+  $("#st-clear").addEventListener("click", async () => {
+    if (!confirm("Clear the whole history for everyone? The counts start again from zero. A backup with the old history is saved first.")) return;
+    try { await api("DELETE", "/api/history"); toast("History cleared"); }
+    catch (err) { if (err.status !== 401) toast(err.message); }
+    loadHistory();
+  });
 
   // ---------- phone notifications ----------
   const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;

@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
-<link rel="stylesheet" href="/styles.css?v=2.4">
+<link rel="stylesheet" href="/styles.css?v=2.5">
 </head>
 <body>
 <svg width="0" height="0" class="visually-hidden" aria-hidden="true">
@@ -136,6 +136,10 @@
     <section class="card">
       <h3 class="card-title">Recent activity</h3>
       <ul class="activity" id="st-recent"></ul>
+      <div class="hist-tools" id="st-tools" hidden>
+        <p class="muted small">Tap × to remove an entry you logged by mistake or while trying the app out.</p>
+        <button type="button" class="btn ghost danger" id="st-clear">Clear history</button>
+      </div>
     </section>
   </section>
 
@@ -342,6 +346,6 @@
 <script src="/vendor/qrcode.js"></script>
 <script src="/vendor/jsQR.js"></script>
 <script src="/vendor/zxing.min.js"></script>
-<script src="/app.js?v=2.4"></script>
+<script src="/app.js?v=2.5"></script>
 </body>
 </html>

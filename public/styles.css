@@ -315,6 +315,10 @@ input::placeholder { color: color-mix(in srgb, var(--muted) 75%, transparent); }
 .check input[type="radio"] { width: 22px; height: 22px; min-height: 0; accent-color: var(--accent); flex: none; margin: 0; }
 
 /* ---------- history tab ---------- */
+.hist-del { flex: none; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--muted); font-size: 1.15rem; line-height: 1; cursor: pointer; display: grid; place-items: center; }
+.hist-del:hover, .hist-del:focus-visible { color: var(--expired); border-color: var(--expired); }
+.hist-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.hist-tools p { margin: 0; flex: 1 1 220px; }
 .card-title { font-size: 1.05rem; font-weight: 700; }
 .stat-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .stat { border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
