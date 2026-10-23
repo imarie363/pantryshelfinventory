@@ -935,22 +935,26 @@
 
   // ---------- cover photo ----------
   let coverShown, coverPos = { x: 50, y: 50 }, coverImg = null, posDirty = false;
+  // A household without its own photo gets the default shelf picture, always centered
+  const DEFAULT_COVER = "/default-cover.jpg?v=1";
   function applyCover(v, pos) {
     if (pos && !posDirty) coverPos = pos;
-    const where = `${coverPos.x}% ${coverPos.y}%`;
+    const where = v ? `${coverPos.x}% ${coverPos.y}%` : "50% 50%";
     for (const node of [document.querySelector(".hero"), $("#coverPreview")]) node.style.setProperty("--cover-pos", where);
     $("#coverX").value = coverPos.x; $("#coverY").value = coverPos.y;
     if (v === coverShown) return;
     coverShown = v;
+    const src = v ? `/cover.jpg?v=${encodeURIComponent(v)}` : DEFAULT_COVER;
     for (const node of [document.querySelector(".hero"), $("#coverPreview")]) {
-      if (v) node.style.setProperty("--cover", `url("/cover.jpg?v=${encodeURIComponent(v)}")`); else node.style.removeProperty("--cover");
-      node.classList.toggle("has-cover", !!v);
+      node.style.setProperty("--cover", `url("${src}")`);
+      node.classList.add("has-cover");
     }
-    $("#coverEmpty").hidden = !!v;
+    $("#coverPreview").classList.toggle("is-default", !v);
+    $("#coverDefault").hidden = !!v;
     $("#coverRemove").hidden = !v;
     $("#coverHint").hidden = $("#coverSliders").hidden = !v;
     coverImg = null;
-    if (v) { const img = new Image(); img.src = `/cover.jpg?v=${encodeURIComponent(v)}`; img.decode().then(() => { coverImg = img; fitPreview(); }).catch(() => {}); }
+    if (v) { const img = new Image(); img.src = src; img.decode().then(() => { coverImg = img; fitPreview(); }).catch(() => {}); }
   }
   // Make the preview the same shape as the header, so what you see there is what the header shows
   function fitPreview() {
