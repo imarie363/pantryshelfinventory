@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
-<link rel="stylesheet" href="/styles.css?v=2.5">
+<link rel="stylesheet" href="/styles.css?v=2.6">
 </head>
 <body>
 <svg width="0" height="0" class="visually-hidden" aria-hidden="true">
@@ -34,26 +34,44 @@
   <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4M7 10H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1"/></symbol>
   <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></symbol>
   <symbol id="i-addsq" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 8v8M8 12h8"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11 12 4l9 7M5 10v10h5v-6h4v6h5V10"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M14 9l2 2"/></symbol>
   <symbol id="i-snow" viewBox="0 0 24 24"><path d="M12 2v20M4.9 7l14.2 10M4.9 17 19.1 7M9 4l3 2 3-2M9 20l3-2 3 2"/></symbol>
 </svg>
 
 <div class="login-page" id="loginView" hidden>
 <div class="login">
   <div class="brand"><img src="/icon-192.png" alt=""><h1>Pantry Shelf</h1></div>
-  <p class="muted">Enter your password to open the shelf. This phone stays logged in for a year.</p>
+  <p class="muted" id="loginIntro">Enter your password to open the shelf. This phone stays logged in for a year.</p>
   <form id="loginForm">
     <div class="field" id="nameField" hidden><label for="who">Your name</label><input id="who" autocomplete="username" autocapitalize="words" maxlength="30">
       <p class="muted small">Leave it empty to use the household password.</p></div>
     <div class="field"><label for="pw" id="pwLabel">Household password</label><input id="pw" type="password" autocomplete="current-password" required></div>
     <p class="error" id="loginError" role="alert"></p>
     <button class="btn primary" type="submit">Open the shelf</button>
+    <p class="muted small" id="signupLink" hidden>New here? <button class="linkish" type="button" id="toSignup">Create a household</button></p>
   </form>
+  <form id="signupForm" hidden>
+    <p class="muted" id="signupIntro">Start your own shelf. Everyone you add later gets their own login.</p>
+    <div class="field" id="codeField"><label for="su-code">Invite code</label><input id="su-code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCD-2345" maxlength="12">
+      <p class="muted small">Ask the person who runs this site for one.</p></div>
+    <div class="field"><label for="su-house">Household name</label><input id="su-house" maxlength="40" autocomplete="off" placeholder="The Santos family" required></div>
+    <div class="row2">
+      <div class="field"><label for="su-name">Your name</label><input id="su-name" maxlength="30" autocomplete="username" autocapitalize="words" required></div>
+      <div class="field"><label for="su-pass">Password</label><input id="su-pass" type="password" minlength="6" autocomplete="new-password" required></div>
+    </div>
+    <p class="error" id="signupError" role="alert"></p>
+    <button class="btn primary" type="submit">Create household</button>
+    <p class="muted small"><button class="linkish" type="button" id="toLogin">I already have a login</button></p>
+  </form>
+  <p class="muted small" id="siteFull" hidden>This site is full for now, so no new households can join.</p>
 </div>
 </div>
 
 <div class="wrap" id="appView" hidden>
   <header class="hero">
     <div class="brand"><img src="/icon-192.png" alt=""><h1>Pantry Shelf</h1><button class="me-chip" id="meChip" type="button" hidden></button></div>
+    <p class="hh-name" id="hhName" hidden></p>
     <p id="today">Use what expires first.</p>
     <div class="tally" aria-label="Summary">
       <button class="t-exp" data-jump="expired"><b id="n-exp">0</b><span>Expired</span></button>
@@ -164,8 +182,10 @@
         </div>
         <p class="muted small">They go by email (below) and to every phone with notifications turned on.</p>
         <div class="field"><label for="r-to">Email to</label><input id="r-to" type="text" inputmode="email" autocomplete="off" placeholder="you@gmail.com, partner@gmail.com"></div>
-        <fieldset class="group">
-          <legend>Gmail account that sends it</legend>
+        <p class="muted small" id="mailNote" hidden></p>
+        <fieldset class="group" id="mailAccount">
+          <legend>Gmail account the site sends with</legend>
+          <p class="muted small">Only admins see this. It sends the emails for every household on the site.</p>
           <div class="field"><label for="r-user">Gmail address</label><input id="r-user" type="email" autocomplete="off" placeholder="you@gmail.com"></div>
           <div class="field"><label for="r-pass">App password</label><input id="r-pass" type="password" autocomplete="new-password" placeholder="16 letters from Google">
             <p class="muted small">Make one at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">myaccount.google.com/apppasswords</a>. Spaces are fine.</p></div>
@@ -189,6 +209,7 @@
       <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-users"/></svg></span><h3>People</h3></div>
       <p class="muted">Give everyone their own login, so the history shows who added, used or threw away what. <span id="hhNote"></span></p>
       <ul class="people" id="peopleList"></ul>
+      <p class="muted small" id="peopleLimit"></p>
       <form id="personForm" class="group">
         <strong class="group-title">Add a person</strong>
         <div class="row2">
@@ -197,6 +218,27 @@
         </div>
         <div class="tools"><button class="btn primary" type="submit">Add person</button></div>
       </form>
+    </section>
+    <section class="card">
+      <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-home"/></svg></span><h3>Household</h3></div>
+      <form id="hhForm" class="row-form">
+        <div class="field"><label for="hh-name">Name</label><input id="hh-name" maxlength="40" required></div>
+        <button class="btn" type="submit">Rename</button>
+      </form>
+      <details class="more" id="hhDeleteBox" hidden>
+        <summary>Delete this household</summary>
+        <p class="muted small">This deletes the shelf, shopping list, history, photos and everyone's login in this household. It can't be undone in the app; the site keeps a last backup for a while.</p>
+        <div class="tools"><button class="btn danger" type="button" id="hhDelete">Delete household</button></div>
+      </details>
+    </section>
+    <section class="card" id="adminCard" hidden>
+      <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-key"/></svg></span><h3>Site admin</h3></div>
+      <p class="muted" id="adminStatus">Checking…</p>
+      <ul class="people" id="hhList"></ul>
+      <strong class="group-title">Invite codes</strong>
+      <p class="muted small">Send a code to a friend so they can create a household. Each code works once, for 14 days.</p>
+      <ul class="people" id="inviteList"></ul>
+      <div class="tools"><button class="btn primary" type="button" id="inviteNew">Make an invite code</button></div>
     </section>
     <section class="card">
       <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-archive"/></svg></span><h3>Backups</h3></div>
@@ -346,6 +388,6 @@
 <script src="/vendor/qrcode.js"></script>
 <script src="/vendor/jsQR.js"></script>
 <script src="/vendor/zxing.min.js"></script>
-<script src="/app.js?v=2.5"></script>
+<script src="/app.js?v=2.6"></script>
 </body>
 </html>

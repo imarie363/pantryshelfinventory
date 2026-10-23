@@ -1,6 +1,8 @@
 // Pantry Shelf: a small self-hosted server, Node 20+.
 // Serves ./public and a JSON API backed by JSON files in DATA_DIR.
-// Also sends daily expiry reminders (email, phone push) and writes nightly backups.
+// Several households can share one server, each with its own shelf (DATA_DIR/households/<id>);
+// the first one keeps its files in DATA_DIR itself. Also sends expiry reminders (email, phone push)
+// and writes nightly backups.
 const http = require("node:http");
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
@@ -23,15 +25,20 @@ const PUBLIC = path.join(__dirname, "public");
 const COOKIE = "pantry_session";
 const YEAR = 365 * 24 * 3600;
 const UA = "PantryShelf/2.0 (self-hosted pantry app)";
-const HOUSEHOLD = { id: "h", name: "Household" };
+const MAIN = "main"; // the household that was there before households existed
+const HOUSEHOLD = { id: "h", name: "Household", hid: MAIN, admin: true }; // the household password's login
+const MAX_HOUSEHOLDS = Number(env.MAX_HOUSEHOLDS || 10);
+const MAX_MEMBERS = Number(env.MAX_MEMBERS || 5);
+const OPEN_SIGNUP = env.OPEN_SIGNUP === "true"; // without it, a new household needs an invite code
+const INVITE_DAYS = 14;
 
 if (!PASSWORD) console.warn("PANTRY_PASSWORD is not set: the app is open to anyone who can reach it.");
 if (!env.SESSION_SECRET) console.warn("SESSION_SECRET is not set: everyone is logged out when the server restarts.");
 
 // ---------- storage: one JSON file per collection, written atomically ----------
 fs.mkdirSync(DATA_DIR, { recursive: true });
-function jsonFile(name, key) {
-  const file = path.join(DATA_DIR, name);
+function jsonFile(file, key) {
+  const name = path.relative(DATA_DIR, file);
   let data = {};
   try { data = JSON.parse(fs.readFileSync(file, "utf8"))[key] || {}; } catch (e) { if (e.code !== "ENOENT") throw e; }
   let writing = Promise.resolve();
@@ -49,26 +56,59 @@ function jsonFile(name, key) {
     flushed: () => writing,
   };
 }
-const itemsDb = jsonFile("items.json", "items");        // label code -> item
-const shoppingDb = jsonFile("shopping.json", "list");   // id -> {name, done, addedAt}
-const productsDb = jsonFile("products.json", "products"); // barcode -> {name, unit, place, source}
-const metaDb = jsonFile("meta.json", "meta");           // lastReminder, lastBackup, cover
-const settingsDb = jsonFile("settings.json", "settings"); // reminder and backup settings edited in the app
-const usersDb = jsonFile("users.json", "users");        // id -> {name, salt, hash, gen, createdAt}
-const historyDb = jsonFile("history.json", "history");  // id -> {item, name, qty, unit, place, outcome, by, at}
-const pushDb = jsonFile("push.json", "subs");            // id -> {sub, by, ua, createdAt}
-const ALL_DBS = [itemsDb, shoppingDb, productsDb, metaDb, settingsDb, usersDb, historyDb, pushDb];
-const COVER_FILE = path.join(DATA_DIR, "cover.jpg");
+// Shared by all households
+const accountsDb = jsonFile(path.join(DATA_DIR, "users.json"), "users");      // id -> {name, salt, hash, gen, household, admin, createdAt, avatar}
+const householdsDb = jsonFile(path.join(DATA_DIR, "households.json"), "households"); // id -> {name, createdAt}
+const invitesDb = jsonFile(path.join(DATA_DIR, "invites.json"), "invites");   // code -> {createdAt, expires, by}
+const siteDb = jsonFile(path.join(DATA_DIR, "site.json"), "site");            // the email account the site sends with
+
+// One household's files, loaded the first time it's used
+const loaded = new Map();
+function household(hid) {
+  if (loaded.has(hid)) return loaded.get(hid);
+  if (!householdsDb.data[hid]) return null;
+  const legacy = hid === MAIN, dir = legacy ? DATA_DIR : path.join(DATA_DIR, "households", hid);
+  fs.mkdirSync(dir, { recursive: true });
+  const f = (name, key) => jsonFile(path.join(dir, name), key);
+  const h = {
+    id: hid, legacy, dir,
+    get name() { return householdsDb.data[hid]?.name || "Household"; },
+    items: f("items.json", "items"),          // label code -> item
+    shopping: f("shopping.json", "list"),     // id -> {name, done, addedAt}
+    products: f("products.json", "products"), // barcode -> {name, unit, place, source}
+    meta: f("meta.json", "meta"),             // lastReminder, lastBackup, cover
+    settings: f("settings.json", "settings"), // reminder and weekly summary settings edited in the app
+    history: f("history.json", "history"),    // id -> {name, qty, unit, place, outcome, by, at}
+    push: f("push.json", "subs"),             // id -> {sub, by, ua, createdAt}
+    coverFile: path.join(dir, "cover.jpg"),
+    version: Date.now(),
+    bump() { h.version = Date.now(); },
+  };
+  h.all = [h.items, h.shopping, h.products, h.meta, h.settings, h.history, h.push];
+  loaded.set(hid, h);
+  return h;
+}
+const households = () => Object.keys(householdsDb.data).map(household).filter(Boolean);
+const membersOf = (hid) => Object.entries(accountsDb.data).filter(([, u]) => (u.household || MAIN) === hid);
+
+// First start after the update: everything that's there becomes the first household, and
+// the people in it may manage the site (households, invite codes, the email account).
+if (!householdsDb.data[MAIN]) {
+  householdsDb.data[MAIN] = { name: env.HOUSEHOLD_NAME || "Our household", createdAt: Date.now() };
+  for (const u of Object.values(accountsDb.data)) { u.household = MAIN; u.admin = true; }
+  const old = (() => { try { return JSON.parse(fs.readFileSync(path.join(DATA_DIR, "settings.json"), "utf8")).settings || {}; } catch { return {}; } })();
+  for (const k of ["smtpHost", "smtpPort", "smtpUser", "smtpPass", "mailFrom"]) if (old[k] !== undefined) siteDb.data[k] = old[k];
+  householdsDb.save(); accountsDb.save(); siteDb.save();
+  console.log("Set up households: the existing shelf is the first one.");
+}
 const AVATAR_DIR = path.join(DATA_DIR, "avatars"); // one small JPEG per person, named by their id
 fs.mkdirSync(AVATAR_DIR, { recursive: true });
 // Emoji someone can pick instead of a photo
 const AVATAR_EMOJI = ["🍅", "🥕", "🧀", "🍞", "🥑", "🍋", "🍇", "🍓", "🥦", "🌶️", "🍄", "🥚", "🍌", "🍉", "🥥", "🍯", "🍪", "🧁", "☕", "🐱", "🐶", "🌻", "⭐", "🏠"];
-let version = Date.now();
-const bump = () => (version = Date.now());
 
 // ---------- auth ----------
-// Everyone can log in with the household password, or with their own name and password
-// (added in Settings > People) so the history shows who used what.
+// Everyone logs in with their own name and password (names are unique on the whole site).
+// The first household can also use the household password from .env.
 const sign = (v) => crypto.createHmac("sha256", SECRET).update(v).digest("base64url");
 function makeToken(user) { const v = `v2.${user.id}.${user.id === "h" ? 0 : user.gen || 0}.${Date.now()}`; return `${v}.${sign(v)}`; }
 function tokenUser(t) {
@@ -78,26 +118,32 @@ function tokenUser(t) {
   if (s.length !== want.length || !crypto.timingSafeEqual(Buffer.from(s), Buffer.from(want))) return null;
   const [ver, id, gen] = v.split(".");
   if (ver === "v1" || id === "h") return PASSWORD ? HOUSEHOLD : null; // version 1 logins count as the household
-  const u = usersDb.data[id];
+  const u = accountsDb.data[id];
   if (!u || String(u.gen || 0) !== gen) return null; // removed, or password changed since
-  return { id, name: u.name };
+  return { id, name: u.name, hid: u.household || MAIN, admin: !!u.admin };
 }
 function cookies(req) {
   const out = {};
   for (const part of (req.headers.cookie || "").split(";")) { const [k, ...v] = part.trim().split("="); if (k) out[k] = decodeURIComponent(v.join("=")); }
   return out;
 }
-const openMode = () => !PASSWORD && !Object.keys(usersDb.data).length;
+const openMode = () => !PASSWORD && !Object.keys(accountsDb.data).length && Object.keys(householdsDb.data).length === 1;
 const whoIs = (req) => (openMode() ? HOUSEHOLD : tokenUser(cookies(req)[COOKIE]));
-const authed = (req) => !!whoIs(req);
 const loginAttempts = new Map(); // ip -> {n, until}
+const clientIp = (req) => req.headers["cf-connecting-ip"] || req.headers["x-forwarded-for"]?.split(",")[0].trim() || req.socket.remoteAddress;
+const blocked = (ip) => (loginAttempts.get(ip)?.until || 0) > Date.now();
+function failedTry(ip) {
+  const a = loginAttempts.get(ip) || { n: 0, until: 0 };
+  a.n += 1; if (a.n >= 5) { a.n = 0; a.until = Date.now() + 60_000; }
+  loginAttempts.set(ip, a);
+}
 function hashPassword(pw, salt = crypto.randomBytes(16).toString("hex")) { return { salt, hash: crypto.scryptSync(pw, salt, 32).toString("hex") }; }
 function passwordMatches(pw, u) {
   const got = crypto.scryptSync(pw, u.salt, 32), want = Buffer.from(u.hash, "hex");
   return got.length === want.length && crypto.timingSafeEqual(got, want);
 }
 const sameText = (a, b) => typeof a === "string" && a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
-const findUser = (name) => Object.entries(usersDb.data).find(([, u]) => u.name.toLowerCase() === String(name).trim().toLowerCase());
+const findUser = (name) => Object.entries(accountsDb.data).find(([, u]) => u.name.toLowerCase() === String(name).trim().toLowerCase());
 function cleanPerson(body) {
   const name = str(body.name, 30);
   if (!name) return { error: "Type a name." };
@@ -140,7 +186,7 @@ function daysLeft(expiry, now = new Date()) {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   return Math.round((new Date(y, m - 1, d) - today) / 86400000);
 }
-const sortedItems = () => Object.entries(itemsDb.data).map(([id, it]) => ({ id, ...it, days: daysLeft(it.expiry) })).sort((a, b) => a.days - b.days);
+const sortedItems = (h) => Object.entries(h.items.data).map(([id, it]) => ({ id, ...it, days: daysLeft(it.expiry) })).sort((a, b) => a.days - b.days);
 
 // ---------- outbound http ----------
 async function getJson(url, ms = 8000) {
@@ -152,8 +198,8 @@ async function getJson(url, ms = 8000) {
 
 // ---------- barcode lookup (own memory first, then Open Food Facts) ----------
 const offCache = new Map(); // barcode -> {at, value}
-async function lookupBarcode(code) {
-  const own = productsDb.data[code];
+async function lookupBarcode(h, code) {
+  const own = h.products.data[code];
   if (own) return { ...own, barcode: code, source: "pantry" };
   const hit = offCache.get(code);
   if (hit && Date.now() - hit.at < 6 * 3600e3) return hit.value;
@@ -168,10 +214,10 @@ async function lookupBarcode(code) {
   offCache.set(code, { at: Date.now(), value });
   return value;
 }
-function rememberProduct(item) {
+function rememberProduct(h, item) {
   if (!item.barcode) return;
-  productsDb.data[item.barcode] = { name: item.name, unit: item.unit, place: item.place, updatedAt: Date.now() };
-  productsDb.save();
+  h.products.data[item.barcode] = { name: item.name, unit: item.unit, place: item.place, updatedAt: Date.now() };
+  h.products.save();
 }
 
 // ---------- recipe ideas (TheMealDB, by the items that expire first) ----------
@@ -193,8 +239,8 @@ function ingredientGuesses(name) {
   for (const w of [...words].reverse()) out.push(w.endsWith("s") && w.length > 4 ? w.slice(0, -1) : w);
   return [...new Set(out)].slice(0, 4);
 }
-async function recipeIdeas() {
-  const pool = sortedItems().filter((it) => it.days >= -1).slice(0, 8);
+async function recipeIdeas(h) {
+  const pool = sortedItems(h).filter((it) => it.days >= -1).slice(0, 8);
   const meals = new Map(); // id -> {id, name, thumb, url, uses:Set, score}
   const used = [];
   for (const it of pool) {
@@ -220,20 +266,21 @@ async function recipeIdeas() {
 // ---------- history: what was added, used and thrown away, and by whom ----------
 const HISTORY_MAX = 5000;
 const COUNTABLE = new Set(["pcs", "cans", "jars", "packs", "bottles", "boxes", "bags"]);
-function logEvent(item, outcome, qty, by) {
-  historyDb.data[crypto.randomUUID()] = { name: item.name, qty, unit: item.unit || "", place: item.place || "Pantry", outcome, by: by.name, at: Date.now() };
-  const keys = Object.keys(historyDb.data);
+function logEvent(h, item, outcome, qty, by) {
+  const hist = h.history.data;
+  hist[crypto.randomUUID()] = { name: item.name, qty, unit: item.unit || "", place: item.place || "Pantry", outcome, by: by.name, at: Date.now() };
+  const keys = Object.keys(hist);
   if (keys.length > HISTORY_MAX) {
-    keys.sort((a, b) => historyDb.data[a].at - historyDb.data[b].at);
-    for (const k of keys.slice(0, keys.length - HISTORY_MAX)) delete historyDb.data[k];
+    keys.sort((a, b) => hist[a].at - hist[b].at);
+    for (const k of keys.slice(0, keys.length - HISTORY_MAX)) delete hist[k];
   }
-  return historyDb.save();
+  return h.history.save();
 }
 // "3 cans" counts as 3; "0.5 kg" counts as one thing
 const amount = (e) => (COUNTABLE.has(e.unit) && e.qty > 0 ? e.qty : 1);
 const monthKey = (t) => isoDay(new Date(t)).slice(0, 7);
-function historySummary() {
-  const events = Object.entries(historyDb.data).map(([id, e]) => ({ ...e, id })).sort((a, b) => b.at - a.at);
+function historySummary(h) {
+  const events = Object.entries(h.history.data).map(([id, e]) => ({ ...e, id })).sort((a, b) => b.at - a.at);
   const now = new Date(), months = [];
   for (let i = 5; i >= 0; i--) months.push(monthKey(new Date(now.getFullYear(), now.getMonth() - i, 1)));
   const byMonth = Object.fromEntries(months.map((m) => [m, { month: m, used: 0, wasted: 0 }]));
@@ -259,20 +306,13 @@ function historySummary() {
 }
 
 // ---------- reminders ----------
-// Settings saved in the app win; .env only gives the starting values.
+// Settings saved in the app win; .env only gives the starting values (for the first household).
+// The email account that sends is the site's, set by an admin; each household picks who gets it.
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const EMAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
-function reminderSettings() {
-  const s = settingsDb.data, pick = (k, d) => (s[k] !== undefined ? s[k] : d);
+function mailAccount() {
+  const s = siteDb.data, pick = (k, d) => (s[k] !== undefined ? s[k] : d);
   return {
-    enabled: pick("enabled", true),
-    time: pick("time", TIME_RE.test(env.REMINDER_TIME || "") ? env.REMINDER_TIME : "08:00"),
-    days: pick("days", Number(env.REMINDER_DAYS) || 7),
-    // How often: every day, once a week on `weekday` (0 = Sunday), or once a month on `monthday`
-    frequency: pick("frequency", ["weekly", "monthly"].includes(env.REMINDER_FREQUENCY) ? env.REMINDER_FREQUENCY : "daily"),
-    weekday: pick("weekday", 1),
-    monthday: pick("monthday", 1),
-    mailTo: pick("mailTo", env.MAIL_TO || ""),
     smtpHost: pick("smtpHost", env.SMTP_HOST || "smtp.gmail.com"),
     smtpPort: pick("smtpPort", Number(env.SMTP_PORT) || 587),
     smtpUser: pick("smtpUser", env.SMTP_USER || ""),
@@ -280,19 +320,33 @@ function reminderSettings() {
     mailFrom: pick("mailFrom", env.MAIL_FROM || ""),
   };
 }
-const emailReady = (r = reminderSettings()) => !!(r.smtpHost && r.mailTo && r.smtpUser && r.smtpPass);
-function channelsNow() {
-  const r = reminderSettings();
+const mailAccountReady = (a = mailAccount()) => !!(a.smtpHost && a.smtpUser && a.smtpPass);
+function reminderSettings(h) {
+  const s = h.settings.data, pick = (k, d) => (s[k] !== undefined ? s[k] : d), first = h.legacy;
   return {
-    ntfy: !!env.NTFY_URL,
-    telegram: !!(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID),
-    email: emailReady(r),
-    push: Object.keys(pushDb.data).length > 0,
+    enabled: pick("enabled", true),
+    time: pick("time", first && TIME_RE.test(env.REMINDER_TIME || "") ? env.REMINDER_TIME : "08:00"),
+    days: pick("days", (first && Number(env.REMINDER_DAYS)) || 7),
+    // How often: every day, once a week on `weekday` (0 = Sunday), or once a month on `monthday`
+    frequency: pick("frequency", first && ["weekly", "monthly"].includes(env.REMINDER_FREQUENCY) ? env.REMINDER_FREQUENCY : "daily"),
+    weekday: pick("weekday", 1),
+    monthday: pick("monthday", 1),
+    mailTo: pick("mailTo", first ? env.MAIL_TO || "" : ""),
   };
 }
-const activeChannels = () => { const c = channelsNow(); return Object.keys(c).filter((k) => c[k]); };
-function saveReminderSettings(body) {
-  const cur = reminderSettings(), next = {};
+const emailReady = (h) => !!reminderSettings(h).mailTo && mailAccountReady();
+function channelsNow(h) {
+  return {
+    ntfy: h.legacy && !!env.NTFY_URL, // ntfy and Telegram are set in .env, for the first household
+    telegram: h.legacy && !!(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID),
+    email: emailReady(h),
+    push: Object.keys(h.push.data).length > 0,
+  };
+}
+const activeChannels = (h) => { const c = channelsNow(h); return Object.keys(c).filter((k) => c[k]); };
+// Returns a problem to show, or null. Only an admin may change the email account.
+function saveReminderSettings(h, body, admin) {
+  const cur = { ...reminderSettings(h), ...mailAccount() }, next = {};
   next.enabled = body.enabled === undefined ? cur.enabled : !!body.enabled;
   next.time = body.time === undefined ? cur.time : String(body.time);
   if (!TIME_RE.test(next.time)) return "Pick a time like 08:00.";
@@ -309,6 +363,16 @@ function saveReminderSettings(body) {
   const bad = list.find((a) => !EMAIL_RE.test(a));
   if (bad) return `"${bad.slice(0, 60)}" isn't an email address.`;
   next.mailTo = list.join(", ");
+  const acct = {};
+  if (admin) {
+    const problem = cleanMailAccount(cur, body, acct);
+    if (problem) return problem;
+  }
+  h.settings.data = { ...h.settings.data, ...next };
+  if (admin) { siteDb.data = { ...siteDb.data, ...acct }; mailer = null; } // reconnect with the new account on the next send
+  return null;
+}
+function cleanMailAccount(cur, body, next) {
   next.smtpUser = body.smtpUser === undefined ? cur.smtpUser : str(body.smtpUser, 120);
   if (next.smtpUser && !EMAIL_RE.test(next.smtpUser)) return "The sending account must be an email address.";
   next.smtpHost = body.smtpHost === undefined ? cur.smtpHost : str(body.smtpHost, 120);
@@ -319,14 +383,12 @@ function saveReminderSettings(body) {
   const pass = typeof body.smtpPass === "string" ? body.smtpPass.replace(/\s+/g, "") : "";
   next.smtpPass = pass ? pass.slice(0, 200) : cur.smtpPass;
   next.mailFrom = next.smtpUser;
-  settingsDb.data = { ...settingsDb.data, ...next };
-  mailer = null; // reconnect with the new account on the next send
   return null;
 }
-function reminderText() {
-  const list = sortedItems();
+function reminderText(h) {
+  const list = sortedItems(h);
   const expired = list.filter((i) => i.days < 0);
-  const DAYS = reminderSettings().days;
+  const DAYS = reminderSettings(h).days;
   const soon = list.filter((i) => i.days >= 0 && i.days <= DAYS);
   const when = (d) => (d === 0 ? "today" : d === 1 ? "tomorrow" : `in ${d} days`);
   const line = (i) => `- ${i.name} (${i.qty} ${i.unit || ""}`.trimEnd() + `, ${i.place || "Pantry"}): ${i.days < 0 ? `expired ${-i.days} day${i.days === -1 ? "" : "s"} ago` : when(i.days)}`;
@@ -357,17 +419,17 @@ async function sendTelegram({ title, body }) {
   if (!res.ok) throw new Error(`Telegram answered ${res.status}: ${(await res.text()).slice(0, 200)}`);
 }
 let mailer = null;
-async function sendEmail({ title, body, html, attachments }) {
-  const r = reminderSettings();
+async function sendEmail({ title, body, html, attachments }, h) {
+  const r = mailAccount();
   if (!mailer) {
     const nodemailer = require("nodemailer");
     mailer = nodemailer.createTransport({ host: r.smtpHost, port: r.smtpPort, secure: r.smtpPort === 465, auth: { user: r.smtpUser, pass: r.smtpPass } });
   }
   const from = r.mailFrom || r.smtpUser;
   try {
-    await mailer.sendMail({ from: `Pantry Shelf <${from}>`, to: r.mailTo, subject: title, text: body, html, attachments });
+    await mailer.sendMail({ from: `Pantry Shelf <${from}>`, to: reminderSettings(h).mailTo, subject: title, text: body, html, attachments });
   } catch (e) {
-    if (e.code === "EAUTH") throw new Error("The mail account or app password was refused. Check them in Settings.");
+    if (e.code === "EAUTH") throw new Error("The site's mail account or app password was refused. An admin can check them in Settings.");
     throw e;
   }
 }
@@ -379,33 +441,33 @@ function pushLib() {
   let keys;
   try { keys = JSON.parse(fs.readFileSync(file, "utf8")); }
   catch { keys = lib.generateVAPIDKeys(); fs.writeFileSync(file, JSON.stringify(keys), { mode: 0o600 }); }
-  const subject = /^https:\/\//.test(APP_URL) ? APP_URL : `mailto:${reminderSettings().smtpUser || "pantry-shelf@example.com"}`;
+  const subject = /^https:\/\//.test(APP_URL) ? APP_URL : `mailto:${mailAccount().smtpUser || "pantry-shelf@example.com"}`;
   lib.setVapidDetails(subject, keys.publicKey, keys.privateKey);
   lib.publicKey = keys.publicKey;
   return (webpush = lib);
 }
-async function sendPush({ title, short }, only) {
+async function sendPush({ title, short }, h, only) {
   const lib = pushLib(), payload = JSON.stringify({ title, body: short, url: "/" });
-  const targets = Object.entries(pushDb.data).filter(([id]) => !only || id === only);
+  const targets = Object.entries(h.push.data).filter(([id]) => !only || id === only);
   let ok = 0, lastErr = null, changed = false;
   for (const [id, s] of targets) {
     try { await lib.sendNotification(s.sub, payload, { TTL: 12 * 3600 }); ok++; }
     catch (e) {
-      if (e.statusCode === 404 || e.statusCode === 410) { delete pushDb.data[id]; changed = true; } // phone unsubscribed
+      if (e.statusCode === 404 || e.statusCode === 410) { delete h.push.data[id]; changed = true; } // phone unsubscribed
       else lastErr = e;
     }
   }
-  if (changed) await pushDb.save();
+  if (changed) await h.push.save();
   if (!ok && targets.length) throw new Error(lastErr ? `The push service refused it (${lastErr.statusCode || lastErr.message}).` : "This phone's notifications were switched off. Turn them on again.");
   return ok;
 }
-async function sendReminder({ force = false } = {}) {
-  const msg = reminderText();
+async function sendReminder(h, { force = false } = {}) {
+  const msg = reminderText(h);
   if (!force && !msg.count && REMINDER_SKIP_EMPTY) return { sent: [], skipped: "nothing expiring" };
-  const sent = [], failed = [], channels = channelsNow();
+  const sent = [], failed = [], channels = channelsNow(h);
   for (const [name, fn] of [["ntfy", sendNtfy], ["telegram", sendTelegram], ["email", sendEmail], ["push", sendPush]]) {
     if (!channels[name]) continue;
-    try { await fn(msg); sent.push(name); } catch (e) { console.error(`Reminder via ${name} failed:`, e.message); failed.push({ channel: name, error: e.message }); }
+    try { await fn(msg, h); sent.push(name); } catch (e) { console.error(`Reminder via ${name} failed (${h.id}):`, e.message); failed.push({ channel: name, error: e.message }); }
   }
   return { sent, failed };
 }
@@ -414,48 +476,54 @@ async function sendReminder({ force = false } = {}) {
 let backupDirOk = false;
 try { fs.mkdirSync(BACKUP_DIR, { recursive: true }); fs.accessSync(BACKUP_DIR, fs.constants.W_OK); backupDirOk = true; }
 catch (e) { console.warn(`Backups are off: can't write to ${BACKUP_DIR} (${e.code}).`); }
-const snapshot = () => ({ app: "pantry-shelf", version: 2, exportedAt: new Date().toISOString(), items: itemsDb.data, shopping: shoppingDb.data, products: productsDb.data, history: historyDb.data });
+const snapshot = (h) => ({ app: "pantry-shelf", version: 2, household: h.name, exportedAt: new Date().toISOString(), items: h.items.data, shopping: h.shopping.data, products: h.products.data, history: h.history.data });
 const BACKUP_RE = /^pantry-[\w-]+\.json$/;
-async function writeBackup(name) {
-  const file = path.join(BACKUP_DIR, name);
-  await fsp.writeFile(file + ".tmp", JSON.stringify(snapshot(), null, 1));
+// The first household's backups keep their old names; the others' carry the household id
+const OTHER_RE = /^pantry-h[0-9a-f]{8}-/;
+const backupName = (h, what) => (h.legacy ? `pantry-${what}.json` : `pantry-${h.id}-${what}.json`);
+const ownsBackup = (h, f) => BACKUP_RE.test(f) && (h.legacy ? !OTHER_RE.test(f) : f.startsWith(`pantry-${h.id}-`));
+const stamp = (d = new Date()) => `${isoDay(d)}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+async function writeBackup(h, what) {
+  const file = path.join(BACKUP_DIR, backupName(h, what));
+  await fsp.writeFile(file + ".tmp", JSON.stringify(snapshot(h), null, 1));
   await fsp.rename(file + ".tmp", file);
   return file;
 }
 async function runBackup() {
-  const file = await writeBackup(`pantry-${isoDay(new Date())}.json`);
+  const files = [];
+  for (const h of households()) files.push(await writeBackup(h, isoDay(new Date())));
   const cutoff = Date.now() - BACKUP_KEEP_DAYS * 86400e3;
   for (const f of await fsp.readdir(BACKUP_DIR)) {
     if (!BACKUP_RE.test(f)) continue;
     const st = await fsp.stat(path.join(BACKUP_DIR, f));
     if (st.mtimeMs < cutoff) await fsp.unlink(path.join(BACKUP_DIR, f));
   }
-  return file;
+  return files;
 }
-async function listBackups() {
+async function listBackups(h) {
   if (!backupDirOk) return [];
   const out = [];
   for (const f of await fsp.readdir(BACKUP_DIR)) {
-    if (!BACKUP_RE.test(f)) continue;
+    if (!ownsBackup(h, f)) continue;
     const st = await fsp.stat(path.join(BACKUP_DIR, f));
     out.push({ file: f, at: st.mtimeMs, size: st.size });
   }
   return out.sort((a, b) => b.at - a.at);
 }
 // When the weekly summary goes out: a weekday (0 = Sunday) and a time, set in Settings > Backups
-const summarySchedule = () => ({
-  summaryDay: Number.isInteger(settingsDb.data.summaryDay) ? settingsDb.data.summaryDay : 0,
-  summaryTime: TIME_RE.test(settingsDb.data.summaryTime || "") ? settingsDb.data.summaryTime : BACKUP_TIME,
+const summarySchedule = (h) => ({
+  summaryDay: Number.isInteger(h.settings.data.summaryDay) ? h.settings.data.summaryDay : 0,
+  summaryTime: TIME_RE.test(h.settings.data.summaryTime || "") ? h.settings.data.summaryTime : BACKUP_TIME,
 });
-async function backupStatus() {
-  const sched = summarySchedule();
-  if (!backupDirOk) return { enabled: false, emailCopy: !!settingsDb.data.backupEmail, emailReady: emailReady(), ...sched };
-  const files = await listBackups();
+async function backupStatus(h) {
+  const sched = summarySchedule(h), emailCopy = !!h.settings.data.backupEmail;
+  if (!backupDirOk) return { enabled: false, emailCopy, emailReady: emailReady(h), ...sched };
+  const files = await listBackups(h);
   return { enabled: true, time: BACKUP_TIME, keepDays: BACKUP_KEEP_DAYS, count: files.length, latest: files[0]?.file || null, files: files.slice(0, 40),
-    emailCopy: !!settingsDb.data.backupEmail, emailReady: emailReady(), lastEmailed: metaDb.data.lastBackupEmail || null, ...sched };
+    emailCopy, emailReady: emailReady(h), lastEmailed: h.meta.data.lastBackupEmail || null, ...sched };
 }
 // Put a backup back. A copy of what's there now is saved first, so a restore can be undone.
-async function restoreSnapshot(snap) {
+async function restoreSnapshot(h, snap) {
   if (!snap || snap.app !== "pantry-shelf" || !snap.items || typeof snap.items !== "object") throw new Error("That isn't a Pantry Shelf backup.");
   const items = {};
   for (const [id, it] of Object.entries(snap.items)) {
@@ -463,31 +531,29 @@ async function restoreSnapshot(snap) {
     if (clean) items[id] = { ...clean, updatedAt: Number(it.updatedAt) || Date.now() };
   }
   let safety = null;
-  if (backupDirOk) {
-    const d = new Date();
-    safety = path.basename(await writeBackup(`pantry-before-restore-${isoDay(d)}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.json`));
-  }
-  itemsDb.data = items;
-  if (snap.shopping && typeof snap.shopping === "object") shoppingDb.data = snap.shopping;
-  if (snap.products && typeof snap.products === "object") productsDb.data = snap.products;
-  if (snap.history && typeof snap.history === "object") historyDb.data = snap.history;
-  await Promise.all([itemsDb.save(), shoppingDb.save(), productsDb.save(), historyDb.save()]);
-  bump();
+  if (backupDirOk) safety = path.basename(await writeBackup(h, `before-restore-${stamp()}`));
+  h.items.data = items;
+  if (snap.shopping && typeof snap.shopping === "object") h.shopping.data = snap.shopping;
+  if (snap.products && typeof snap.products === "object") h.products.data = snap.products;
+  if (snap.history && typeof snap.history === "object") h.history.data = snap.history;
+  await Promise.all([h.items.save(), h.shopping.save(), h.products.save(), h.history.save()]);
+  h.bump();
   return { items: Object.keys(items).length, safety };
 }
 // The weekly email: a summary to read, the same as a PDF report, and the backup file for restoring
-function weeklyReport() {
+function weeklyReport(h) {
   const report = require("./report");
   const day = isoDay(new Date());
   const summary = report.summarize({
-    items: sortedItems(), history: historySummary(), days: reminderSettings().days,
-    shopping: Object.values(shoppingDb.data).filter((e) => !e.done).sort((a, b) => a.addedAt - b.addedAt),
+    items: sortedItems(h), history: historySummary(h), days: reminderSettings(h).days,
+    shopping: Object.values(h.shopping.data).filter((e) => !e.done).sort((a, b) => a.addedAt - b.addedAt),
   });
   return { report, summary, day };
 }
-async function emailBackup() {
-  if (!emailReady()) throw new Error("Set up the reminder email first (Gmail address, app password and who gets it).");
-  const { report, summary, day } = weeklyReport(), opts = { day, appUrl: APP_URL };
+async function emailBackup(h) {
+  if (!mailAccountReady()) throw new Error("The site has no email account yet. An admin sets it up in Settings.");
+  if (!emailReady(h)) throw new Error("Fill in who gets the reminder email first.");
+  const { report, summary, day } = weeklyReport(h), opts = { day, appUrl: APP_URL };
   const bits = [summary.soon.length && `${summary.soon.length} to use soon`, summary.expired.length && `${summary.expired.length} expired`].filter(Boolean);
   await sendEmail({
     title: `Pantry this week: ${bits.length ? bits.join(", ") : `${summary.total} items, nothing urgent`}`,
@@ -495,10 +561,10 @@ async function emailBackup() {
     html: report.html(summary, opts),
     attachments: [
       { filename: `pantry-report-${day}.pdf`, content: await report.pdf(summary, opts), contentType: "application/pdf" },
-      { filename: `pantry-backup-${day}.json`, content: JSON.stringify(snapshot(), null, 1), contentType: "application/json" },
+      { filename: `pantry-backup-${day}.json`, content: JSON.stringify(snapshot(h), null, 1), contentType: "application/json" },
     ],
-  });
-  metaDb.data.lastBackupEmail = day; await metaDb.save();
+  }, h);
+  h.meta.data.lastBackupEmail = day; await h.meta.save();
 }
 
 // Is today a reminder day? A month without the chosen date (say the 31st) uses its last day.
@@ -510,26 +576,70 @@ function reminderDue(rs, now) {
 
 // ---------- daily scheduler (checks once a minute) ----------
 async function tick() {
-  const now = new Date(), day = isoDay(now), t = hhmm(now), meta = metaDb.data;
-  const rs = reminderSettings();
-  if (rs.enabled && reminderDue(rs, now) && t >= rs.time && meta.lastReminder !== day && activeChannels().length) {
-    meta.lastReminder = day; await metaDb.save();
-    const r = await sendReminder();
-    console.log(`Reminder: ${r.skipped || `sent via ${r.sent.join(", ") || "nothing"}`}`);
+  const now = new Date(), day = isoDay(now), t = hhmm(now), first = household(MAIN);
+  for (const h of households()) {
+    const meta = h.meta.data, rs = reminderSettings(h);
+    if (rs.enabled && reminderDue(rs, now) && t >= rs.time && meta.lastReminder !== day && activeChannels(h).length) {
+      meta.lastReminder = day; await h.meta.save();
+      const r = await sendReminder(h);
+      console.log(`Reminder for ${h.id}: ${r.skipped || `sent via ${r.sent.join(", ") || "nothing"}`}`);
+    }
+    // Weekly summary with the PDF report and an off-machine copy of the backup
+    const ws = summarySchedule(h);
+    if (h.settings.data.backupEmail && now.getDay() === ws.summaryDay && t >= ws.summaryTime && meta.lastBackupEmail !== day && emailReady(h)) {
+      meta.lastBackupEmail = day; await h.meta.save();
+      try { await emailBackup(h); console.log(`Weekly summary emailed for ${h.id}.`); } catch (e) { console.error(`Emailing the weekly summary for ${h.id} failed:`, e.message); }
+    }
   }
-  if (t >= BACKUP_TIME && meta.lastBackup !== day && backupDirOk) {
-    meta.lastBackup = day; await metaDb.save();
-    try { console.log("Backup written:", await runBackup()); } catch (e) { console.error("Backup failed:", e.message); }
-  }
-  // Weekly summary with the PDF report and an off-machine copy of the backup
-  const ws = summarySchedule();
-  if (settingsDb.data.backupEmail && now.getDay() === ws.summaryDay && t >= ws.summaryTime && meta.lastBackupEmail !== day && emailReady()) {
-    meta.lastBackupEmail = day; await metaDb.save();
-    try { await emailBackup(); console.log("Backup emailed."); } catch (e) { console.error("Emailing the backup failed:", e.message); }
+  // One nightly backup run for all households (remembered in the first one)
+  if (t >= BACKUP_TIME && first.meta.data.lastBackup !== day && backupDirOk) {
+    first.meta.data.lastBackup = day; await first.meta.save();
+    try { console.log("Backups written:", (await runBackup()).length); } catch (e) { console.error("Backup failed:", e.message); }
   }
 }
 setInterval(() => tick().catch((e) => console.error(e)), 60_000);
 setTimeout(() => tick().catch((e) => console.error(e)), 5_000);
+
+// ---------- households and invite codes ----------
+const CODE_CHARS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+function newCode() {
+  const pick = () => Array.from(crypto.randomBytes(4), (b) => CODE_CHARS[b % CODE_CHARS.length]).join("");
+  return `${pick()}-${pick()}`;
+}
+// "k7mx q2pd" or "K7MXQ2PD" -> "K7MX-Q2PD"
+const normCode = (v) => { const c = String(v || "").toUpperCase().replace(/[^0-9A-Z]/g, ""); return c.length === 8 ? `${c.slice(0, 4)}-${c.slice(4)}` : ""; };
+function pruneInvites() {
+  let changed = false;
+  for (const [code, v] of Object.entries(invitesDb.data)) if (v.expires < Date.now()) { delete invitesDb.data[code]; changed = true; }
+  if (changed) invitesDb.save();
+}
+const siteFull = () => Object.keys(householdsDb.data).length >= MAX_HOUSEHOLDS;
+function adminState() {
+  pruneInvites();
+  return {
+    limits: { households: MAX_HOUSEHOLDS, members: MAX_MEMBERS }, openSignup: OPEN_SIGNUP,
+    households: households().map((x) => ({
+      id: x.id, name: x.name, first: x.legacy, createdAt: householdsDb.data[x.id].createdAt,
+      members: membersOf(x.id).map(([, u]) => u.name).sort((a, b) => a.localeCompare(b)), items: Object.keys(x.items.data).length,
+    })).sort((a, b) => (b.first - a.first) || a.createdAt - b.createdAt),
+    invites: Object.entries(invitesDb.data).map(([code, v]) => ({ code, ...v })).sort((a, b) => b.createdAt - a.createdAt),
+  };
+}
+// Removes a household with its people and files. Its last state is kept as a backup until
+// backups that old are cleaned up (BACKUP_KEEP_DAYS).
+async function deleteHousehold(h, by) {
+  if (backupDirOk) await writeBackup(h, `deleted-${stamp()}`);
+  for (const [id] of membersOf(h.id)) {
+    delete accountsDb.data[id];
+    await fsp.unlink(path.join(AVATAR_DIR, `${id}.jpg`)).catch(() => {});
+  }
+  delete householdsDb.data[h.id];
+  await Promise.all(h.all.map((d) => d.flushed()));
+  loaded.delete(h.id);
+  await fsp.rm(h.dir, { recursive: true, force: true });
+  await Promise.all([accountsDb.save(), householdsDb.save()]);
+  console.log(`Household ${h.id} deleted by ${by}.`);
+}
 
 // ---------- http ----------
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
@@ -578,15 +688,17 @@ async function serveStatic(req, res, urlPath) {
 
 async function api(req, res, p, me) {
   const m = (re) => p.match(re);
+  const h = household(me.hid);
+  if (!h) return send(res, 401, { error: "login" });
   let r;
-  if (p === "/api/state" && req.method === "GET") return send(res, 200, { version, items: itemsDb.data, shopping: shoppingDb.data, cover: metaDb.data.cover || null, coverPos: metaDb.data.coverPos || { x: 50, y: 50 } });
+  if (p === "/api/state" && req.method === "GET") return send(res, 200, { version: h.version, household: { id: h.id, name: h.name }, items: h.items.data, shopping: h.shopping.data, cover: h.meta.data.cover || null, coverPos: h.meta.data.coverPos || { x: 50, y: 50 } });
 
   // Which part of the cover photo shows: a focus point in percent, set by dragging in Settings
   if (p === "/api/cover/position" && req.method === "PUT") {
     const b = await readBody(req), clamp = (v) => Math.min(100, Math.max(0, Math.round(Number(v))));
     if (!Number.isFinite(Number(b.x)) || !Number.isFinite(Number(b.y))) return send(res, 400, { error: "Bad position." });
-    metaDb.data.coverPos = { x: clamp(b.x), y: clamp(b.y) }; await metaDb.save(); bump();
-    return send(res, 200, { ok: true, coverPos: metaDb.data.coverPos });
+    h.meta.data.coverPos = { x: clamp(b.x), y: clamp(b.y) }; await h.meta.save(); h.bump();
+    return send(res, 200, { ok: true, coverPos: h.meta.data.coverPos });
   }
 
   // Cover photo for the header, uploaded from Settings (the page sends a resized JPEG)
@@ -594,16 +706,16 @@ async function api(req, res, p, me) {
     let img;
     try { img = await readRaw(req, 4 * 1024 * 1024); } catch (e) { return send(res, 413, { error: "That photo is too large. Try a smaller one." }); }
     if (!(img[0] === 0xff && img[1] === 0xd8 && img[2] === 0xff)) return send(res, 400, { error: "That file isn't a JPEG photo." });
-    await fsp.writeFile(COVER_FILE + ".tmp", img); await fsp.rename(COVER_FILE + ".tmp", COVER_FILE);
-    metaDb.data.cover = Date.now(); metaDb.data.coverPos = { x: 50, y: 50 }; await metaDb.save(); bump();
-    return send(res, 200, { ok: true, cover: metaDb.data.cover, coverPos: metaDb.data.coverPos });
+    await fsp.writeFile(h.coverFile + ".tmp", img); await fsp.rename(h.coverFile + ".tmp", h.coverFile);
+    h.meta.data.cover = Date.now(); h.meta.data.coverPos = { x: 50, y: 50 }; await h.meta.save(); h.bump();
+    return send(res, 200, { ok: true, cover: h.meta.data.cover, coverPos: h.meta.data.coverPos });
   }
   if (p === "/api/cover" && req.method === "DELETE") {
-    await fsp.unlink(COVER_FILE).catch(() => {});
-    delete metaDb.data.cover; await metaDb.save(); bump();
+    await fsp.unlink(h.coverFile).catch(() => {});
+    delete h.meta.data.cover; await h.meta.save(); h.bump();
     return send(res, 200, { ok: true, cover: null });
   }
-  if (p === "/api/items" && req.method === "GET") return send(res, 200, { version, items: itemsDb.data });
+  if (p === "/api/items" && req.method === "GET") return send(res, 200, { version: h.version, items: h.items.data });
 
   if ((r = m(/^\/api\/items\/([^/]+)$/))) {
     const id = r[1];
@@ -611,24 +723,24 @@ async function api(req, res, p, me) {
     if (req.method === "PUT") {
       const data = cleanItem(await readBody(req));
       if (!data) return send(res, 400, { error: "Name and best-before date are required." });
-      const prev = itemsDb.data[id];
-      if (!prev && Object.keys(itemsDb.data).length >= 5000) return send(res, 507, { error: "The shelf is full." });
+      const prev = h.items.data[id];
+      if (!prev && Object.keys(h.items.data).length >= 5000) return send(res, 507, { error: "The shelf is full." });
       data.addedBy = prev?.addedBy || me.name;
       data.updatedBy = me.name;
-      itemsDb.data[id] = data; bump(); await itemsDb.save(); rememberProduct(data);
-      if (!prev) await logEvent(data, "added", data.qty, me);
-      return send(res, 200, { ok: true, item: data, version });
+      h.items.data[id] = data; h.bump(); await h.items.save(); rememberProduct(h, data);
+      if (!prev) await logEvent(h, data, "added", data.qty, me);
+      return send(res, 200, { ok: true, item: data, version: h.version });
     }
     if (req.method === "DELETE") {
       const body = await readBody(req).catch(() => ({}));
-      const gone = itemsDb.data[id];
-      delete itemsDb.data[id]; bump(); await itemsDb.save();
+      const gone = h.items.data[id];
+      delete h.items.data[id]; h.bump(); await h.items.save();
       // What happened to what was left: eaten ("used") or thrown away ("wasted")
-      if (gone && ["used", "wasted"].includes(body.outcome) && gone.qty > 0) await logEvent(gone, body.outcome, gone.qty, me);
+      if (gone && ["used", "wasted"].includes(body.outcome) && gone.qty > 0) await logEvent(h, gone, body.outcome, gone.qty, me);
       let entry = null;
       if (gone && body.addToShopping) {
-        const already = Object.values(shoppingDb.data).some((e) => !e.done && e.name.toLowerCase() === gone.name.toLowerCase());
-        if (!already) { entry = { name: gone.name, done: false, addedAt: Date.now(), updatedAt: Date.now() }; shoppingDb.data[crypto.randomUUID()] = entry; await shoppingDb.save(); }
+        const already = Object.values(h.shopping.data).some((e) => !e.done && e.name.toLowerCase() === gone.name.toLowerCase());
+        if (!already) { entry = { name: gone.name, done: false, addedAt: Date.now(), updatedAt: Date.now() }; h.shopping.data[crypto.randomUUID()] = entry; await h.shopping.save(); }
       }
       return send(res, 200, { ok: true, version, addedToShopping: !!entry });
     }
@@ -636,103 +748,100 @@ async function api(req, res, p, me) {
 
   // Took one out of a box of several: count it, keep the rest on the shelf
   if ((r = m(/^\/api\/items\/([^/]+)\/use$/)) && req.method === "POST") {
-    const it = itemsDb.data[r[1]];
+    const it = h.items.data[r[1]];
     if (!it) return send(res, 404, { error: "That item isn't on the shelf any more." });
     const body = await readBody(req).catch(() => ({}));
     const outcome = body.outcome === "wasted" ? "wasted" : "used";
     const take = Math.min(1, Math.max(0, +it.qty));
     it.qty = Math.max(0, Math.round((+it.qty - 1) * 1000) / 1000); it.updatedAt = Date.now(); it.updatedBy = me.name;
-    bump(); await itemsDb.save();
-    if (take > 0) await logEvent(it, outcome, take, me);
-    return send(res, 200, { ok: true, item: it, version });
+    h.bump(); await h.items.save();
+    if (take > 0) await logEvent(h, it, outcome, take, me);
+    return send(res, 200, { ok: true, item: it, version: h.version });
   }
 
   if ((r = m(/^\/api\/shopping\/([^/]+)$/))) {
     const id = r[1];
     if (id === "clear-done" && req.method === "POST") {
-      for (const [k, e] of Object.entries(shoppingDb.data)) if (e.done) delete shoppingDb.data[k];
-      bump(); await shoppingDb.save(); return send(res, 200, { ok: true, shopping: shoppingDb.data });
+      for (const [k, e] of Object.entries(h.shopping.data)) if (e.done) delete h.shopping.data[k];
+      h.bump(); await h.shopping.save(); return send(res, 200, { ok: true, shopping: h.shopping.data });
     }
     if (!LIST_ID_RE.test(id)) return send(res, 400, { error: "Bad id." });
     if (req.method === "PUT") {
       const e = cleanEntry(await readBody(req));
       if (!e) return send(res, 400, { error: "Type what to buy." });
-      if (!shoppingDb.data[id] && Object.keys(shoppingDb.data).length >= 1000) return send(res, 507, { error: "The list is full." });
-      shoppingDb.data[id] = e; bump(); await shoppingDb.save(); return send(res, 200, { ok: true, entry: e });
+      if (!h.shopping.data[id] && Object.keys(h.shopping.data).length >= 1000) return send(res, 507, { error: "The list is full." });
+      h.shopping.data[id] = e; h.bump(); await h.shopping.save(); return send(res, 200, { ok: true, entry: e });
     }
-    if (req.method === "DELETE") { delete shoppingDb.data[id]; bump(); await shoppingDb.save(); return send(res, 200, { ok: true }); }
+    if (req.method === "DELETE") { delete h.shopping.data[id]; h.bump(); await h.shopping.save(); return send(res, 200, { ok: true }); }
   }
 
   if ((r = m(/^\/api\/barcode\/([^/]+)$/)) && req.method === "GET") {
     if (!BARCODE_RE.test(r[1])) return send(res, 400, { error: "That isn't a product barcode." });
-    try { const product = await lookupBarcode(r[1]); return send(res, 200, { product }); }
+    try { const product = await lookupBarcode(h, r[1]); return send(res, 200, { product }); }
     catch (e) { console.error("Barcode lookup failed:", e.message); return send(res, 502, { error: "Couldn't reach Open Food Facts. Type the name instead." }); }
   }
 
-  if (p === "/api/recipes" && req.method === "GET") return send(res, 200, await recipeIdeas());
+  if (p === "/api/recipes" && req.method === "GET") return send(res, 200, await recipeIdeas(h));
 
   if (p === "/api/settings" && req.method === "GET") {
     return send(res, 200, {
       reminders: (() => {
-        const r = reminderSettings();
-        return { channels: activeChannels(), enabled: r.enabled, time: r.time, days: r.days, frequency: r.frequency, weekday: r.weekday, monthday: r.monthday, mailTo: r.mailTo, smtpUser: r.smtpUser,
-          smtpHost: r.smtpHost, smtpPort: r.smtpPort, hasPassword: !!r.smtpPass, lastSent: metaDb.data.lastReminder || null,
-          tz: Intl.DateTimeFormat().resolvedOptions().timeZone };
+        const r = reminderSettings(h), acct = mailAccount();
+        return { channels: activeChannels(h), enabled: r.enabled, time: r.time, days: r.days, frequency: r.frequency, weekday: r.weekday, monthday: r.monthday, mailTo: r.mailTo,
+          mailReady: mailAccountReady(acct), canEditMail: me.admin, lastSent: h.meta.data.lastReminder || null, tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          ...(me.admin ? { smtpUser: acct.smtpUser, smtpHost: acct.smtpHost, smtpPort: acct.smtpPort, hasPassword: !!acct.smtpPass } : {}) };
       })(),
-      backups: await backupStatus(),
-      push: { devices: Object.keys(pushDb.data).length },
+      backups: await backupStatus(h),
+      push: { devices: Object.keys(h.push.data).length },
     });
   }
   if (p === "/api/settings/reminders" && req.method === "PUT") {
-    const problem = saveReminderSettings(await readBody(req));
+    const problem = saveReminderSettings(h, await readBody(req), me.admin);
     if (problem) return send(res, 400, { error: problem });
-    await settingsDb.save();
+    await h.settings.save(); if (me.admin) await siteDb.save();
     console.log("Reminder settings changed in the app.");
     return send(res, 200, { ok: true });
   }
   if (p === "/api/reminders/test" && req.method === "POST") {
-    if (!activeChannels().length) return send(res, 400, { error: "Fill in the email settings, or turn on phone notifications, first." });
-    return send(res, 200, await sendReminder({ force: true }));
+    if (!activeChannels(h).length) return send(res, 400, { error: "Fill in the email settings, or turn on phone notifications, first." });
+    return send(res, 200, await sendReminder(h, { force: true }));
   }
-  if (p === "/api/history" && req.method === "GET") return send(res, 200, historySummary());
+  if (p === "/api/history" && req.method === "GET") return send(res, 200, historySummary(h));
   // Remove one entry, e.g. something logged while trying the app out
   const histMatch = p.match(/^\/api\/history\/([\w-]{1,64})$/);
   if (histMatch && req.method === "DELETE") {
-    if (!historyDb.data[histMatch[1]]) return send(res, 404, { error: "That entry is already gone." });
-    delete historyDb.data[histMatch[1]]; await historyDb.save(); bump();
+    if (!h.history.data[histMatch[1]]) return send(res, 404, { error: "That entry is already gone." });
+    delete h.history.data[histMatch[1]]; await h.history.save(); h.bump();
     return send(res, 200, { ok: true });
   }
   // Start the history over; a backup with the old history is saved first
   if (p === "/api/history" && req.method === "DELETE") {
     let safety = null;
-    if (backupDirOk) {
-      const d = new Date();
-      safety = path.basename(await writeBackup(`pantry-before-clear-history-${isoDay(d)}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.json`));
-    }
-    historyDb.data = {}; await historyDb.save(); bump();
+    if (backupDirOk) safety = path.basename(await writeBackup(h, `before-clear-history-${stamp()}`));
+    h.history.data = {}; await h.history.save(); h.bump();
     console.log(`History cleared by ${me.name}.`);
     return send(res, 200, { ok: true, safety });
   }
 
   // ---- people: a login for each person in the household
   if (p === "/api/people" && req.method === "GET") {
-    const people = Object.entries(usersDb.data).map(([id, u]) => ({ id, name: u.name, createdAt: u.createdAt, avatar: u.avatar || null })).sort((a, b) => a.name.localeCompare(b.name));
-    return send(res, 200, { people, me, householdPassword: !!PASSWORD, emoji: AVATAR_EMOJI });
+    const people = membersOf(h.id).map(([id, u]) => ({ id, name: u.name, createdAt: u.createdAt, avatar: u.avatar || null })).sort((a, b) => a.name.localeCompare(b.name));
+    return send(res, 200, { people, me, householdPassword: h.legacy && !!PASSWORD, emoji: AVATAR_EMOJI, maxMembers: MAX_MEMBERS });
   }
   if (p === "/api/people" && req.method === "POST") {
     const c = cleanPerson(await readBody(req));
     if (c.error) return send(res, 400, { error: c.error });
-    if (findUser(c.name)) return send(res, 409, { error: `There's already someone called ${c.name}.` });
-    if (Object.keys(usersDb.data).length >= 20) return send(res, 507, { error: "That's the most people the app keeps (20)." });
+    if (findUser(c.name)) return send(res, 409, { error: `The name ${c.name} is already used on this site. Add a letter, like ${c.name} ${c.name[0]}.` });
+    if (membersOf(h.id).length >= MAX_MEMBERS) return send(res, 507, { error: `A household can have up to ${MAX_MEMBERS} people.` });
     const id = crypto.randomBytes(6).toString("hex");
-    usersDb.data[id] = { name: c.name, ...hashPassword(c.password), gen: 1, createdAt: Date.now() };
-    await usersDb.save();
+    accountsDb.data[id] = { name: c.name, ...hashPassword(c.password), gen: 1, household: h.id, createdAt: Date.now() };
+    await accountsDb.save();
     return send(res, 200, { ok: true, id });
   }
   // Avatar: a photo (the page sends a small square JPEG) or one of the emoji
   if ((r = m(/^\/api\/people\/([a-f0-9]{12})\/avatar$/))) {
-    const u = usersDb.data[r[1]];
-    if (!u) return send(res, 404, { error: "That person was removed." });
+    const u = accountsDb.data[r[1]];
+    if (!u || (u.household || MAIN) !== h.id) return send(res, 404, { error: "That person was removed." });
     const file = path.join(AVATAR_DIR, `${r[1]}.jpg`);
     if (req.method === "GET") {
       try { return send(res, 200, await fsp.readFile(file), { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=31536000, immutable" }); }
@@ -751,31 +860,31 @@ async function api(req, res, p, me) {
         await fsp.unlink(file).catch(() => {});
         u.avatar = { emoji };
       }
-      await usersDb.save();
+      await accountsDb.save();
       return send(res, 200, { ok: true, avatar: u.avatar });
     }
     if (req.method === "DELETE") {
       await fsp.unlink(file).catch(() => {});
-      delete u.avatar; await usersDb.save();
+      delete u.avatar; await accountsDb.save();
       return send(res, 200, { ok: true, avatar: null });
     }
   }
   if ((r = m(/^\/api\/people\/([a-f0-9]{12})$/))) {
-    const u = usersDb.data[r[1]];
-    if (!u) return send(res, 404, { error: "That person was already removed." });
+    const u = accountsDb.data[r[1]];
+    if (!u || (u.household || MAIN) !== h.id) return send(res, 404, { error: "That person was already removed." });
     if (req.method === "PUT") { // new password; logs that person out on their other phones
       const body = await readBody(req);
       const c = cleanPerson({ name: u.name, password: body.password });
       if (c.error) return send(res, 400, { error: c.error });
       Object.assign(u, hashPassword(c.password), { gen: (u.gen || 0) + 1 });
-      await usersDb.save();
+      await accountsDb.save();
       const headers = r[1] === me.id ? { "Set-Cookie": sessionCookie(req, { id: r[1], gen: u.gen }) } : {};
       return send(res, 200, { ok: true }, headers);
     }
     if (req.method === "DELETE") {
       if (r[1] === me.id) return send(res, 400, { error: "You can't remove yourself. Ask someone else, or log in with the household password." });
-      if (!PASSWORD && Object.keys(usersDb.data).length === 1) return send(res, 400, { error: "Keep at least one person: there's no household password to log in with." });
-      delete usersDb.data[r[1]]; await usersDb.save();
+      if (!(h.legacy && PASSWORD) && membersOf(h.id).length === 1) return send(res, 400, { error: "Keep at least one person: nobody else could log in." });
+      delete accountsDb.data[r[1]]; await accountsDb.save();
       await fsp.unlink(path.join(AVATAR_DIR, `${r[1]}.jpg`)).catch(() => {});
       return send(res, 200, { ok: true });
     }
@@ -790,32 +899,32 @@ async function api(req, res, p, me) {
     const { subscription } = await readBody(req);
     const ep = subscription && subscription.endpoint;
     if (typeof ep !== "string" || !/^https:\/\//.test(ep) || !subscription.keys?.p256dh || !subscription.keys?.auth) return send(res, 400, { error: "This browser sent a broken subscription. Try again." });
-    if (Object.keys(pushDb.data).length >= 50) return send(res, 507, { error: "Too many phones signed up. Turn notifications off on an old one first." });
+    if (Object.keys(h.push.data).length >= 50) return send(res, 507, { error: "Too many phones signed up. Turn notifications off on an old one first." });
     const id = crypto.createHash("sha256").update(ep).digest("hex").slice(0, 24);
-    pushDb.data[id] = { sub: { endpoint: ep, keys: { p256dh: String(subscription.keys.p256dh), auth: String(subscription.keys.auth) } }, by: me.name, ua: str(req.headers["user-agent"] || "", 200), createdAt: Date.now() };
-    await pushDb.save();
+    h.push.data[id] = { sub: { endpoint: ep, keys: { p256dh: String(subscription.keys.p256dh), auth: String(subscription.keys.auth) } }, by: me.name, ua: str(req.headers["user-agent"] || "", 200), createdAt: Date.now() };
+    await h.push.save();
     return send(res, 200, { ok: true, id });
   }
   if (p === "/api/push" && req.method === "DELETE") {
     const { endpoint } = await readBody(req);
     const id = typeof endpoint === "string" && crypto.createHash("sha256").update(endpoint).digest("hex").slice(0, 24);
-    if (id && pushDb.data[id]) { delete pushDb.data[id]; await pushDb.save(); }
+    if (id && h.push.data[id]) { delete h.push.data[id]; await h.push.save(); }
     return send(res, 200, { ok: true });
   }
   if (p === "/api/push/test" && req.method === "POST") {
     const { endpoint } = await readBody(req);
     const id = typeof endpoint === "string" && crypto.createHash("sha256").update(endpoint).digest("hex").slice(0, 24);
-    if (!id || !pushDb.data[id]) return send(res, 400, { error: "This phone isn't signed up. Turn notifications on first." });
-    const msg = reminderText();
-    try { await sendPush(msg.count ? msg : { title: "Pantry Shelf", short: "Notifications work on this phone." }, id); return send(res, 200, { ok: true }); }
+    if (!id || !h.push.data[id]) return send(res, 400, { error: "This phone isn't signed up. Turn notifications on first." });
+    const msg = reminderText(h);
+    try { await sendPush(msg.count ? msg : { title: "Pantry Shelf", short: "Notifications work on this phone." }, h, id); return send(res, 200, { ok: true }); }
     catch (e) { return send(res, 502, { error: e.message }); }
   }
 
   // ---- backups: restore, and the weekly emailed copy
   if (p === "/api/settings/backups" && req.method === "PUT") {
     const body = await readBody(req);
-    if (body.emailCopy && !emailReady()) return send(res, 400, { error: "Set up the reminder email first, then switch this on." });
-    const next = { ...settingsDb.data };
+    if (body.emailCopy && !emailReady(h)) return send(res, 400, { error: mailAccountReady() ? "Fill in who gets the reminder email first, then switch this on." : "The site has no email account yet. Ask an admin to set it up." });
+    const next = { ...h.settings.data };
     if (body.emailCopy !== undefined) next.backupEmail = !!body.emailCopy;
     if (body.summaryDay !== undefined) {
       if (!Number.isInteger(body.summaryDay) || body.summaryDay < 0 || body.summaryDay > 6) return send(res, 400, { error: "Pick a day of the week." });
@@ -825,23 +934,23 @@ async function api(req, res, p, me) {
       if (!TIME_RE.test(String(body.summaryTime))) return send(res, 400, { error: "Pick a time like 11:00." });
       next.summaryTime = String(body.summaryTime);
     }
-    settingsDb.data = next;
-    await settingsDb.save();
-    return send(res, 200, { ok: true, backups: await backupStatus() });
+    h.settings.data = next;
+    await h.settings.save();
+    return send(res, 200, { ok: true, backups: await backupStatus(h) });
   }
   if (p === "/api/report.pdf" && req.method === "GET") {
-    const { report, summary, day } = weeklyReport();
+    const { report, summary, day } = weeklyReport(h);
     return send(res, 200, await report.pdf(summary, { day, appUrl: APP_URL }), { "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="pantry-report-${day}.pdf"` });
   }
   if (p === "/api/backup/email" && req.method === "POST") {
-    try { await emailBackup(); return send(res, 200, { ok: true }); }
+    try { await emailBackup(h); return send(res, 200, { ok: true }); }
     catch (e) { return send(res, 400, { error: e.message }); }
   }
   if (p === "/api/backup/restore" && req.method === "POST") {
     let snap;
     if ((req.headers["x-restore-file"] || "") !== "") {
       const f = String(req.headers["x-restore-file"]);
-      if (!backupDirOk || !BACKUP_RE.test(f)) return send(res, 400, { error: "Pick a backup from the list." });
+      if (!backupDirOk || !ownsBackup(h, f)) return send(res, 400, { error: "Pick a backup from the list." });
       try { snap = JSON.parse(await fsp.readFile(path.join(BACKUP_DIR, f), "utf8")); } catch { return send(res, 404, { error: "That backup can't be read." }); }
     } else {
       let raw;
@@ -849,17 +958,57 @@ async function api(req, res, p, me) {
       try { snap = JSON.parse(raw.toString("utf8")); } catch { return send(res, 400, { error: "That file isn't a Pantry Shelf backup." }); }
     }
     try {
-      const out = await restoreSnapshot(snap);
-      console.log(`Restored a backup (${out.items} items) for ${me.name}.`);
+      const out = await restoreSnapshot(h, snap);
+      console.log(`Restored a backup (${out.items} items) for ${me.name} in ${h.id}.`);
       return send(res, 200, { ok: true, ...out });
     } catch (e) { return send(res, 400, { error: e.message }); }
   }
   if (p === "/api/backup" && req.method === "GET") {
-    return send(res, 200, JSON.stringify(snapshot(), null, 1), { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="pantry-${isoDay(new Date())}.json"` });
+    return send(res, 200, JSON.stringify(snapshot(h), null, 1), { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="pantry-${isoDay(new Date())}.json"` });
   }
   if (p === "/api/backup/run" && req.method === "POST") {
     if (!backupDirOk) return send(res, 400, { error: "Backups are off: the backup folder isn't writable." });
-    await runBackup(); return send(res, 200, { ok: true, backups: await backupStatus() });
+    await writeBackup(h, isoDay(new Date())); return send(res, 200, { ok: true, backups: await backupStatus(h) });
+  }
+
+  // ---- this household: its name, or deleting it with everything in it
+  if (p === "/api/household" && req.method === "PUT") {
+    const name = str((await readBody(req)).name, 40);
+    if (!name) return send(res, 400, { error: "Type a name for the household." });
+    householdsDb.data[h.id].name = name; await householdsDb.save(); h.bump();
+    return send(res, 200, { ok: true, name });
+  }
+  if (p === "/api/household" && req.method === "DELETE") {
+    if (h.legacy) return send(res, 400, { error: "The first household can't be deleted." });
+    const { confirm } = await readBody(req);
+    if (str(confirm, 40).toLowerCase() !== h.name.toLowerCase()) return send(res, 400, { error: "Type the household's name exactly to confirm." });
+    await deleteHousehold(h, me.name);
+    return send(res, 200, { ok: true }, { "Set-Cookie": `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0` });
+  }
+
+  // ---- site admin: households, invite codes
+  if (p === "/api/admin" || p.startsWith("/api/admin/")) {
+    if (!me.admin) return send(res, 403, { error: "Only an admin can do that." });
+    if (p === "/api/admin" && req.method === "GET") return send(res, 200, adminState());
+    if (p === "/api/admin/invites" && req.method === "POST") {
+      pruneInvites();
+      if (Object.keys(invitesDb.data).length >= 20) return send(res, 507, { error: "There are 20 unused codes already. Remove some first." });
+      let code; do code = newCode(); while (invitesDb.data[code]);
+      invitesDb.data[code] = { createdAt: Date.now(), expires: Date.now() + INVITE_DAYS * 86400e3, by: me.name };
+      await invitesDb.save();
+      return send(res, 200, { ok: true, code, ...adminState() });
+    }
+    if ((r = m(/^\/api\/admin\/invites\/([A-Z0-9-]{9})$/)) && req.method === "DELETE") {
+      delete invitesDb.data[r[1]]; await invitesDb.save();
+      return send(res, 200, { ok: true, ...adminState() });
+    }
+    if ((r = m(/^\/api\/admin\/households\/(h[0-9a-f]{8})$/)) && req.method === "DELETE") {
+      const t = household(r[1]);
+      if (!t) return send(res, 404, { error: "That household is already gone." });
+      if (t.id === h.id) return send(res, 400, { error: "Delete your own household from its settings instead." });
+      await deleteHousehold(t, me.name);
+      return send(res, 200, { ok: true, ...adminState() });
+    }
   }
   return send(res, 404, { error: "Not found" });
 }
@@ -870,9 +1019,8 @@ const server = http.createServer(async (req, res) => {
     if (p === "/healthz") return send(res, 200, { ok: true });
 
     if (p === "/api/login" && req.method === "POST") {
-      const ip = req.headers["cf-connecting-ip"] || req.headers["x-forwarded-for"]?.split(",")[0].trim() || req.socket.remoteAddress;
-      const a = loginAttempts.get(ip) || { n: 0, until: 0 };
-      if (a.until > Date.now()) return send(res, 429, { error: "Too many tries. Wait a minute and try again." });
+      const ip = clientIp(req);
+      if (blocked(ip)) return send(res, 429, { error: "Too many tries. Wait a minute and try again." });
       const { name, password } = await readBody(req);
       let user = null;
       if (typeof password === "string" && password) {
@@ -882,23 +1030,48 @@ const server = http.createServer(async (req, res) => {
         } else if (PASSWORD && sameText(password, PASSWORD)) user = HOUSEHOLD;
       }
       if (!user) {
-        a.n += 1; if (a.n >= 5) { a.n = 0; a.until = Date.now() + 60_000; }
-        loginAttempts.set(ip, a);
+        failedTry(ip);
         return send(res, 401, { error: typeof name === "string" && name.trim() ? "That name and password don't match." : "That password isn't right." });
       }
       loginAttempts.delete(ip);
       return send(res, 200, { ok: true }, { "Set-Cookie": sessionCookie(req, user) });
+    }
+    // A new household, with an invite code from an admin (or without, when OPEN_SIGNUP=true)
+    if (p === "/api/signup" && req.method === "POST") {
+      const ip = clientIp(req);
+      if (blocked(ip)) return send(res, 429, { error: "Too many tries. Wait a minute and try again." });
+      const b = await readBody(req), code = normCode(b.code);
+      pruneInvites();
+      if (!OPEN_SIGNUP && !invitesDb.data[code]) { failedTry(ip); return send(res, 400, { error: "That invite code isn't valid or has expired. Ask for a new one." }); }
+      if (siteFull()) return send(res, 507, { error: `The site is full: it has room for ${MAX_HOUSEHOLDS} households.` });
+      const hname = str(b.household, 40);
+      if (!hname) return send(res, 400, { error: "Give your household a name." });
+      const c = cleanPerson(b);
+      if (c.error) return send(res, 400, { error: c.error });
+      if (findUser(c.name)) return send(res, 409, { error: `The name ${c.name} is already used on this site. Add a letter, like ${c.name} ${c.name[0]}.` });
+      let hid; do hid = `h${crypto.randomBytes(4).toString("hex")}`; while (householdsDb.data[hid]);
+      const id = crypto.randomBytes(6).toString("hex");
+      householdsDb.data[hid] = { name: hname, createdAt: Date.now() };
+      accountsDb.data[id] = { name: c.name, ...hashPassword(c.password), gen: 1, household: hid, createdAt: Date.now() };
+      delete invitesDb.data[code];
+      await Promise.all([householdsDb.save(), accountsDb.save(), invitesDb.save()]);
+      household(hid);
+      console.log(`New household ${hid} (${hname}) by ${c.name}.`);
+      return send(res, 200, { ok: true }, { "Set-Cookie": sessionCookie(req, { id, gen: 1 }) });
     }
     if (p === "/api/logout" && req.method === "POST") {
       return send(res, 200, { ok: true }, { "Set-Cookie": `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0` });
     }
     if (p === "/api/session") { // asked before logging in
       const me = whoIs(req);
-      return send(res, me ? 200 : 401, me ? { ok: true, passwordProtected: !openMode(), me } : { error: "login", hasPeople: Object.keys(usersDb.data).length > 0, householdPassword: !!PASSWORD });
+      const h = me && household(me.hid);
+      if (h) return send(res, 200, { ok: true, passwordProtected: !openMode(), me: { ...me, household: h.name } });
+      return send(res, 401, { error: "login", hasPeople: Object.keys(accountsDb.data).length > 0, householdPassword: !!PASSWORD, signup: OPEN_SIGNUP ? "open" : "code", full: siteFull() });
     }
     if (p === "/cover.jpg" && req.method === "GET") {
-      if (!authed(req)) return send(res, 401, "Log in first");
-      try { return send(res, 200, await fsp.readFile(COVER_FILE), { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=31536000, immutable" }); }
+      const me = whoIs(req), h = me && household(me.hid);
+      if (!h) return send(res, 401, "Log in first");
+      try { return send(res, 200, await fsp.readFile(h.coverFile), { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=31536000, immutable" }); }
       catch { return send(res, 404, "No cover photo"); }
     }
     if (p.startsWith("/api/")) {
@@ -915,11 +1088,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  const on = activeChannels(), rs = reminderSettings();
   console.log(`Pantry Shelf ${require("./package.json").version} listening on :${PORT}, data in ${DATA_DIR}`);
-  console.log(`Reminders: ${on.length ? `${on.join(", ")} at ${rs.time}${rs.enabled ? "" : " (switched off in Settings)"}` : "off (no channel set)"}; backups: ${backupDirOk ? `${BACKUP_DIR} at ${BACKUP_TIME}, keep ${BACKUP_KEEP_DAYS} days` : "off"}`);
+  console.log(`Households: ${Object.keys(householdsDb.data).length} of ${MAX_HOUSEHOLDS}; email: ${mailAccountReady() ? "set up" : "not set up"}; backups: ${backupDirOk ? `${BACKUP_DIR} at ${BACKUP_TIME}, keep ${BACKUP_KEEP_DAYS} days` : "off"}`);
 });
 for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => {
   server.close();
-  Promise.all(ALL_DBS.map((d) => d.flushed())).finally(() => process.exit(0));
+  Promise.all([accountsDb, householdsDb, invitesDb, siteDb, ...[...loaded.values()].flatMap((h) => h.all)].map((d) => d.flushed())).finally(() => process.exit(0));
 });
