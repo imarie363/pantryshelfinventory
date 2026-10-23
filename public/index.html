@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pantry Shelf</title>
+<meta name="theme-color" content="#3f6b2a">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="/styles.css?v=2.0">
+</head>
+<body>
+<svg width="0" height="0" class="visually-hidden" aria-hidden="true">
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M7 12h10"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-shelf" viewBox="0 0 24 24"><path d="M3 20h18M3 12h18M5 12V5h4v7M11 12V7h3v5M16 12V4h3v8M6 20v-5h5v5M14 20v-4h4v4"/></symbol>
+  <symbol id="i-cart" viewBox="0 0 24 24"><path d="M3 4h2l2.4 11.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 8H6.2"/><circle cx="9" cy="20" r="1.3"/><circle cx="17" cy="20" r="1.3"/></symbol>
+  <symbol id="i-pot" viewBox="0 0 24 24"><path d="M4 10h16v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM2 10h20M9 6c0-1 1-1.5 1-2.5M13 6c0-1 1-1.5 1-2.5"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/></symbol>
+  <symbol id="i-device" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.9-3M4 4v4h4M4 13a8 8 0 0 0 14.9 3M20 20v-4h-4"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></symbol>
+  <symbol id="i-label" viewBox="0 0 24 24"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></symbol>
+  <symbol id="i-barcode" viewBox="0 0 24 24"><path d="M4 5v14M7 5v14M10 5v14M14 5v14M16 5v14M20 5v14"/></symbol>
+  <symbol id="i-jar" viewBox="0 0 24 24"><path d="M8 3h8v3H8zM7 6h10a1 1 0 0 1 1 1v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7a1 1 0 0 1 1-1zM6 11h12"/></symbol>
+  <symbol id="i-fridge" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M5 10h14M9 5v2M9 13v3"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2a6.5 6.5 0 0 1 3.5 5.8"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 6 2.5 8 2.5 8h-17S6 15 6 9M10 20.5a2.2 2.2 0 0 0 4 0"/></symbol>
+  <symbol id="i-snow" viewBox="0 0 24 24"><path d="M12 2v20M4.9 7l14.2 10M4.9 17 19.1 7M9 4l3 2 3-2M9 20l3-2 3 2"/></symbol>
+</svg>
+
+<div class="login-page" id="loginView" hidden>
+<div class="login">
+  <div class="brand"><img src="/icon-192.png" alt=""><h1>Pantry Shelf</h1></div>
+  <p class="muted">Enter your password to open the shelf. This phone stays logged in for a year.</p>
+  <form id="loginForm">
+    <div class="field" id="nameField" hidden><label for="who">Your name</label><input id="who" autocomplete="username" autocapitalize="words" maxlength="30">
+      <p class="muted small">Leave it empty to use the household password.</p></div>
+    <div class="field"><label for="pw" id="pwLabel">Household password</label><input id="pw" type="password" autocomplete="current-password" required></div>
+    <p class="error" id="loginError" role="alert"></p>
+    <button class="btn primary" type="submit">Open the shelf</button>
+  </form>
+</div>
+</div>
+
+<div class="wrap" id="appView" hidden>
+  <header class="hero">
+    <div class="brand"><img src="/icon-192.png" alt=""><h1>Pantry Shelf</h1></div>
+    <p id="today">Use what expires first.</p>
+    <div class="tally" aria-label="Summary">
+      <button class="t-exp" data-jump="expired"><b id="n-exp">0</b><span>Expired</span></button>
+      <button class="t-soon" data-jump="soon"><b id="n-soon">0</b><span>Use this week</span></button>
+      <button class="t-ok" data-jump="later"><b id="n-ok">0</b><span>Fine for now</span></button>
+    </div>
+  </header>
+
+  <nav class="tabs" aria-label="Sections">
+    <button data-tab="shelf" aria-current="page"><svg class="icon"><use href="#i-shelf"/></svg>Shelf</button>
+    <button data-tab="shopping"><svg class="icon"><use href="#i-cart"/></svg>Shopping<span class="count" id="shopCount" hidden></span></button>
+    <button data-tab="recipes"><svg class="icon"><use href="#i-pot"/></svg>Recipes</button>
+    <button data-tab="stats"><svg class="icon"><use href="#i-chart"/></svg>History</button>
+    <button data-tab="settings"><svg class="icon"><use href="#i-gear"/></svg>Settings</button>
+  </nav>
+
+  <div id="status" class="notice">Loading your pantry…</div>
+
+  <!-- Shelf -->
+  <section class="view" id="view-shelf">
+    <div class="places" id="places" role="group" aria-label="Show items in" hidden></div>
+    <div id="bands" class="bands"></div>
+    <p class="muted" id="placeEmpty" hidden></p>
+
+    <div id="empty" class="empty" hidden>
+      <p><strong>Your shelf is empty.</strong> Add an item, then stick its QR label on the jar or box. Next time, scan the label to open it, mark it used, or refill it with a new date.</p>
+      <ul class="list ghost" aria-hidden="true">
+        <li><div class="item u-soon"><span class="name">Coconut milk (example)</span><span class="meta">2 cans · Pantry</span><span class="pill s-soon"><strong>5 days</strong><em>27 Oct</em></span></div></li>
+      </ul>
+      <div class="tools"><button class="btn primary" id="emptyAdd">Add first item</button></div>
+    </div>
+
+    <section class="card" aria-labelledby="labels-h">
+      <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-label"/></svg></span><h3 id="labels-h">Labels</h3></div>
+      <p class="muted">Each item gets its own QR label when you add it. You can also print a sheet of blank labels, stick them on containers now, and fill in the item the first time you scan one. The phone's own camera app can scan the labels too.</p>
+      <div class="tools"><button class="btn" id="blankSheet">Download 24 blank labels</button></div>
+    </section>
+  </section>
+
+  <!-- Shopping -->
+  <section class="view" id="view-shopping" hidden>
+    <form id="shopForm" class="shop-add">
+      <label for="shopInput" class="visually-hidden">Add to the shopping list</label>
+      <input id="shopInput" maxlength="80" placeholder="Add something to buy…" autocomplete="off" list="nameHints">
+      <button class="btn primary" type="submit">Add</button>
+    </form>
+    <ul class="shop-list" id="shopList"></ul>
+    <p class="muted" id="shopEmpty">The list is empty. Items you mark as all used up can be added here automatically.</p>
+    <div class="tools"><button class="btn" id="shopClear" hidden>Clear ticked items</button></div>
+  </section>
+
+  <!-- Recipes -->
+  <section class="view" id="view-recipes" hidden>
+    <div class="band-head"><h2>Ideas for what needs eating first</h2><button class="linkish" id="recipeRefresh"><svg class="icon"><use href="#i-refresh"/></svg>Refresh</button></div>
+    <p class="muted" id="recipeNote">Looking for recipes…</p>
+    <div class="recipes" id="recipeList"></div>
+    <p class="muted small">Recipes from TheMealDB, matched on the English names of your items.</p>
+  </section>
+
+  <!-- History -->
+  <section class="view" id="view-stats" hidden>
+    <section class="card">
+      <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-chart"/></svg></span><h3>This month</h3></div>
+      <div class="stat-pair"><div class="stat ok"><b id="st-used">0</b><span>used</span></div><div class="stat bad"><b id="st-wasted">0</b><span>thrown away</span></div></div>
+      <p class="muted" id="st-note"></p>
+    </section>
+    <section class="card">
+      <h3 class="card-title">Last 6 months</h3>
+      <ul class="bars" id="st-months"></ul>
+      <p class="muted small"><span class="key ok"></span>Used <span class="key bad"></span>Thrown away. Cans, jars and packs count one each; loose food by weight counts once.</p>
+    </section>
+    <section class="card" id="st-top-card">
+      <h3 class="card-title">Thrown away most</h3>
+      <ol class="rank" id="st-top"></ol>
+    </section>
+    <section class="card" id="st-people-card">
+      <h3 class="card-title">Who did what this month</h3>
+      <div class="table-wrap"><table class="people-table"><thead><tr><th scope="col">Person</th><th scope="col">Added</th><th scope="col">Used</th><th scope="col">Thrown away</th></tr></thead><tbody id="st-people"></tbody></table></div>
+    </section>
+    <section class="card">
+      <h3 class="card-title">Recent activity</h3>
+      <ul class="activity" id="st-recent"></ul>
+    </section>
+  </section>
+
+  <!-- Settings -->
+  <section class="view" id="view-settings" hidden>
+    <section class="card">
+      <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-mail"/></svg></span><h3>Daily reminders</h3></div>
+      <p id="remStatus" class="muted">Checking…</p>
+      <form id="remForm" class="rem-form">
+        <label class="switch"><input type="checkbox" id="r-enabled"><span class="track" aria-hidden="true"></span><span>Send daily reminders</span></label>
+        <div class="row2">
+          <div class="field"><label for="r-time">Time</label><input id="r-time" type="time" required></div>
+          <div class="field"><label for="r-days">Look ahead</label>
+            <select id="r-days"><option value="3">3 days</option><option value="5">5 days</option><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select></div>
+        </div>
+        <p class="muted small">They go by email (below) and to every phone with notifications turned on.</p>
+        <div class="field"><label for="r-to">Email to</label><input id="r-to" type="text" inputmode="email" autocomplete="off" placeholder="you@gmail.com, partner@gmail.com"></div>
+        <fieldset class="group">
+          <legend>Gmail account that sends it</legend>
+          <div class="field"><label for="r-user">Gmail address</label><input id="r-user" type="email" autocomplete="off" placeholder="you@gmail.com"></div>
+          <div class="field"><label for="r-pass">App password</label><input id="r-pass" type="password" autocomplete="new-password" placeholder="16 letters from Google">
+            <p class="muted small">Make one at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">myaccount.google.com/apppasswords</a>. Spaces are fine.</p></div>
+          <details class="more">
+            <summary>Not Gmail?</summary>
+            <div class="row2">
+              <div class="field"><label for="r-host">Mail server</label><input id="r-host" type="text" autocomplete="off" placeholder="smtp.gmail.com"></div>
+              <div class="field"><label for="r-port">Port</label><select id="r-port"><option>587</option><option>465</option><option>25</option><option>2525</option></select></div>
+            </div>
+          </details>
+        </fieldset>
+        <div class="tools"><button class="btn primary" type="submit" id="remSave">Save</button><button class="btn" type="button" id="remTest">Send a test email</button></div>
+      </form>
+    </section>
+    <section class="card">
+      <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-bell"/></svg></span><h3>Phone notifications</h3></div>
+      <p id="pushStatus" class="muted">Checking…</p>
+      <div class="tools"><button class="btn primary" id="pushOn" hidden>Turn on for this phone</button><button class="btn" id="pushTest" hidden>Send a test</button><button class="btn" id="pushOff" hidden>Turn off for this phone</button></div>
+    </section>
+    <section class="card">
+      <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-users"/></svg></span><h3>People</h3></div>
+      <p class="muted">Give everyone their own login, so the history shows who added, used or threw away what. <span id="hhNote"></span></p>
+      <ul class="people" id="peopleList"></ul>
+      <form id="personForm" class="group">
+        <strong class="group-title">Add a person</strong>
+        <div class="row2">
+          <div class="field"><label for="p-name">Name</label><input id="p-name" maxlength="30" autocomplete="off" required></div>
+          <div class="field"><label for="p-pass">Password</label><input id="p-pass" type="password" autocomplete="new-password" minlength="6" required></div>
+        </div>
+        <div class="tools"><button class="btn primary" type="submit">Add person</button></div>
+      </form>
+    </section>
+    <section class="card">
+      <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-archive"/></svg></span><h3>Backups</h3></div>
+      <p id="bakStatus" class="muted">Checking…</p>
+      <div class="tools"><button class="btn" id="bakRun">Back up now</button><a class="btn" href="/api/backup" download>Download a copy</a></div>
+      <label class="switch"><input type="checkbox" id="bakEmail"><span class="track" aria-hidden="true"></span><span>Email a copy every Sunday</span></label>
+      <p class="muted small" id="bakEmailNote">A copy kept in your inbox, away from the server, in case its disk fails. It goes to the reminder email addresses.</p>
+      <details class="more" id="restoreBox">
+        <summary>Restore a backup</summary>
+        <div class="restore">
+          <div class="field"><label for="bakPick">Saved on the server</label><select id="bakPick"></select></div>
+          <div class="tools"><button class="btn" id="bakRestore">Restore this one</button>
+            <label class="btn" for="bakFile">Restore from a file<input id="bakFile" class="visually-hidden" type="file" accept=".json,application/json"></label></div>
+          <p class="muted small">This replaces the shelf, shopping list and history for everyone. What's there now is saved first, so you can go back.</p>
+        </div>
+      </details>
+    </section>
+    <section class="card">
+      <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-image"/></svg></span><h3>Cover photo</h3></div>
+      <div class="cover-preview" id="coverPreview"><span id="coverEmpty">No photo yet. The header uses plain green.</span></div>
+      <p class="muted small">Pick any photo, like your own pantry shelf. It's shown behind the header for everyone in the household.</p>
+      <div class="tools">
+        <label class="btn" for="coverInput"><svg class="icon"><use href="#i-image"/></svg>Choose photo<input id="coverInput" class="visually-hidden" type="file" accept="image/*"></label>
+        <button class="btn danger" id="coverRemove" hidden>Remove</button>
+      </div>
+    </section>
+    <section class="card">
+      <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-device"/></svg></span><h3>This device</h3></div>
+      <p class="muted" id="meNote"></p>
+      <p class="muted" id="installNote"></p>
+      <div class="tools"><button class="btn primary" id="installBtn" hidden>Add to home screen</button><button class="btn" id="myPass" hidden>Change my password</button><button class="btn" id="logout">Log out</button></div>
+    </section>
+  </section>
+
+  <div class="footer"><span id="syncNote"></span></div>
+</div>
+
+<div class="dock" id="dock" hidden>
+  <button class="btn primary" id="scanBtn"><svg class="icon"><use href="#i-scan"/></svg>Scan</button>
+  <button class="btn" id="addBtn"><svg class="icon"><use href="#i-plus"/></svg>Add item</button>
+</div>
+
+<dialog id="scanDlg" aria-labelledby="scan-h">
+  <div class="sheet">
+    <div class="sheet-head"><h3 id="scan-h">Scan a label or barcode</h3><button class="x" data-close aria-label="Close">×</button></div>
+    <div class="viewfinder" id="vf" hidden><video id="video" playsinline muted></video></div>
+    <p class="muted" id="scanHint">Point the camera at a pantry label or a product barcode.</p>
+    <div class="tools">
+      <label class="btn" for="photo">Take a photo instead<input id="photo" class="visually-hidden" type="file" accept="image/*" capture="environment"></label>
+    </div>
+    <form id="manualForm">
+      <div class="field"><label for="manualCode" id="manualLabel">Or type the code under the QR, or the barcode number</label>
+        <div class="row2 row-code"><input id="manualCode" class="code" placeholder="K7M2QX or 8712345678906" autocomplete="off" autocapitalize="characters"><button class="btn" type="submit">Open</button></div>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+<dialog id="editDlg" aria-labelledby="edit-h">
+  <div class="sheet">
+    <div class="sheet-head"><h3 id="edit-h">Add item</h3><button class="x" data-close aria-label="Close">×</button></div>
+    <form id="editForm">
+      <p class="form-note" id="editCode"></p>
+      <div class="field"><label for="f-name">What is it?</label>
+        <div class="row2 row-code"><input id="f-name" required maxlength="80" placeholder="Rice, tomato sauce, oats…" list="nameHints"><button class="btn" type="button" id="barcodeBtn" aria-label="Scan barcode"><svg class="icon"><use href="#i-barcode"/></svg>Barcode</button></div>
+        <p class="form-note" id="barcodeNote" hidden></p>
+      </div>
+      <datalist id="nameHints"></datalist>
+      <div class="row2">
+        <div class="field"><label for="f-qty">Quantity</label><input id="f-qty" type="number" min="0" step="any" value="1" inputmode="decimal"></div>
+        <div class="field"><label for="f-unit">Unit</label>
+          <select id="f-unit"><option>pcs</option><option>cans</option><option>jars</option><option>packs</option><option>bottles</option><option>boxes</option><option>bags</option><option>kg</option><option>g</option><option>L</option></select></div>
+      </div>
+      <div class="field"><label for="f-place">Where</label>
+        <select id="f-place"><option>Pantry</option><option>Fridge</option><option>Freezer</option><option>Cupboard</option><option>Basement</option></select></div>
+      <div class="field"><label for="f-exp">Best before / use by</label><input id="f-exp" type="date" required>
+        <div class="chips" id="quick"><button type="button" data-days="7">+1 week</button><button type="button" data-months="1">+1 month</button><button type="button" data-months="3">+3 months</button><button type="button" data-months="6">+6 months</button><button type="button" data-months="12">+1 year</button></div>
+      </div>
+      <div class="tools"><button class="btn primary" type="submit" id="saveBtn">Save item</button><button class="btn" type="button" data-close>Cancel</button></div>
+    </form>
+  </div>
+</dialog>
+
+<dialog id="itemDlg" aria-labelledby="item-h">
+  <div class="sheet">
+    <div class="sheet-head"><h3 id="item-h"></h3><button class="x" data-close aria-label="Close">×</button></div>
+    <div id="itemPill"></div>
+    <dl class="facts" id="itemFacts"></dl>
+    <div class="tools">
+      <button class="btn primary" id="useOne">Used one</button>
+      <button class="btn" id="editItem">Edit / refill</button>
+      <button class="btn danger" id="useAll">Finished</button>
+    </div>
+    <div class="confirm" id="confirmBox" hidden>
+      <p id="confirmText">Remove this item from the shelf?</p>
+      <fieldset class="choice" id="outcomeSet">
+        <legend class="visually-hidden">What happened to it?</legend>
+        <label class="check"><input type="radio" name="outcome" value="used" checked> We used it all</label>
+        <label class="check"><input type="radio" name="outcome" value="wasted"> It went off, thrown away</label>
+      </fieldset>
+      <label class="check"><input type="checkbox" id="toShopping" checked> Add it to the shopping list</label>
+      <div class="tools"><button class="btn danger" id="confirmYes">Remove</button><button class="btn" id="confirmNo">Keep it</button></div>
+    </div>
+    <div class="labelprev"><canvas id="labelCanvas" width="720" height="300" aria-label="QR label"></canvas></div>
+    <div class="tools"><button class="btn" id="saveLabel">Download label</button></div>
+    <p class="muted small">Keep the label on the container when you refill it. Scan it and choose Edit / refill to set the new date.</p>
+  </div>
+</dialog>
+
+<dialog id="passDlg" aria-labelledby="pass-h">
+  <div class="sheet">
+    <div class="sheet-head"><h3 id="pass-h">New password</h3><button class="x" data-close aria-label="Close">×</button></div>
+    <form id="passForm">
+      <div class="field"><label for="newPass">New password</label><input id="newPass" type="password" autocomplete="new-password" minlength="6" required></div>
+      <p class="muted small" id="passNote"></p>
+      <div class="tools"><button class="btn primary" type="submit">Save password</button><button class="btn" type="button" data-close>Cancel</button></div>
+    </form>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="/vendor/qrcode.js"></script>
+<script src="/vendor/jsQR.js"></script>
+<script src="/vendor/zxing.min.js"></script>
+<script src="/app.js?v=2.0"></script>
+</body>
+</html>

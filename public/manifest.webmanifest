@@ -1,0 +1,14 @@
+{
+  "name": "Pantry Shelf",
+  "short_name": "Pantry",
+  "description": "Scan pantry labels and use what expires first.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f3f4ee",
+  "theme_color": "#3f6b2a",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

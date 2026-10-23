@@ -1,0 +1,22 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - pantry-data:/data
+      # Nightly backups land in this folder on the VM (created in the upgrade steps)
+      - /srv/pantry-backups:/backups
+
+  # Cloudflare Tunnel: connects out to Cloudflare, so no router ports need opening.
+  # Cloudflare provides the HTTPS certificate for your domain.
+  tunnel:
+    image: cloudflare/cloudflared:2024.12.2
+    restart: unless-stopped
+    depends_on: [app]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+
+volumes:
+  pantry-data:
