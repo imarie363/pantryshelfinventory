@@ -279,6 +279,7 @@ input::placeholder { color: color-mix(in srgb, var(--muted) 75%, transparent); }
   display: grid; place-items: center; color: var(--hero-muted); font-size: .88rem; text-align: center; padding: 12px; overflow: hidden;
 }
 .cover-preview.has-cover { background: var(--cover) var(--cover-pos, center) / cover no-repeat; cursor: grab; touch-action: none; user-select: none; }
+.cover-preview.is-default { cursor: default; }
 .cover-preview.dragging { cursor: grabbing; outline: 3px solid color-mix(in srgb, var(--accent-2) 55%, transparent); outline-offset: 2px; }
 
 /* ---------- reminder settings form ---------- */

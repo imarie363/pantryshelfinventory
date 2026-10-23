@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
-<link rel="stylesheet" href="/styles.css?v=2.6">
+<link rel="stylesheet" href="/styles.css?v=2.7">
 </head>
 <body>
 <svg width="0" height="0" class="visually-hidden" aria-hidden="true">
@@ -264,7 +264,8 @@
     </section>
     <section class="card">
       <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-image"/></svg></span><h3>Cover photo</h3></div>
-      <div class="cover-preview" id="coverPreview"><span id="coverEmpty">No photo yet. The header uses plain green.</span></div>
+      <div class="cover-preview" id="coverPreview"></div>
+      <p class="muted small" id="coverDefault" hidden>This is the default picture every household starts with. Choose your own photo to replace it; removing yours brings this one back.</p>
       <p class="muted small" id="coverHint" hidden>Drag the photo, or use the sliders, to choose which part shows. The frame is the shape of the header on this screen.</p>
       <div class="row2 sliders" id="coverSliders" hidden>
         <div class="field"><label for="coverY">Up / down</label><input type="range" id="coverY" min="0" max="100" step="1"></div>
@@ -388,6 +389,6 @@
 <script src="/vendor/qrcode.js"></script>
 <script src="/vendor/jsQR.js"></script>
 <script src="/vendor/zxing.min.js"></script>
-<script src="/app.js?v=2.6"></script>
+<script src="/app.js?v=2.7"></script>
 </body>
 </html>
