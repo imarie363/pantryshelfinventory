@@ -472,7 +472,7 @@
     $("#bakEmail").checked = b.emailCopy;
     $("#bakEmail").disabled = !b.emailReady && !b.emailCopy;
     $("#bakEmailNote").textContent = !b.emailReady ? "Set up the reminder email above first; the copy goes to the same addresses."
-      : `A copy kept in your inbox, away from the server, in case its disk fails. It goes to the reminder email addresses.${b.lastEmailed ? ` Last sent ${b.lastEmailed}.` : ""}`;
+      : `A summary of the shelf with a PDF report, plus the backup file, so a copy is kept in your inbox in case the server's disk fails. It goes to the reminder email addresses.${b.lastEmailed ? ` Last sent ${b.lastEmailed}.` : ""}`;
     const pick = $("#bakPick"), files = b.files || [];
     pick.replaceChildren(...files.map((f) => el("option", { value: f.file }, fileDate(f.file))));
     pick.closest(".field").hidden = !files.length;
@@ -591,7 +591,7 @@
     const others = info?.devices || 0;
     if (!pushSupported()) {
       st.textContent = isIOS && !standalone()
-        ? "On iPhone, add Pantry Shelf to the home screen first (Share, then Add to Home Screen), open it from there, and come back here."
+        ? "On iPhone, add Pantry Shelf to the home screen first (the steps are under This device, below), open it from the new icon, and come back here."
         : "This browser can't show notifications from websites. Try Chrome on Android, or Safari from the home screen on iPhone.";
       return;
     }
@@ -639,12 +639,65 @@
   let installEvt = null;
   window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvt = e; renderInstall(); });
   window.addEventListener("appinstalled", () => { installEvt = null; renderInstall(); });
+  // Which phone and browser, so the home-screen steps match what's on screen
+  function browserKind() {
+    const ua = navigator.userAgent;
+    if (isIOS) {
+      if (/CriOS/.test(ua)) return "ios-chrome";
+      if (/FxiOS|EdgiOS/.test(ua)) return "ios-other";
+      if (!/Safari\//.test(ua) || /FBAN|FBAV|Instagram|GSA\/|Line\/|Messenger|GoogleMail/.test(ua)) return "ios-inapp"; // opened inside Gmail, Messenger…
+      return "ios-safari";
+    }
+    if (/SamsungBrowser/.test(ua)) return "samsung";
+    if (/Android/.test(ua)) return /; wv\)/.test(ua) ? "android-inapp" : "android";
+    return "desktop";
+  }
+  const ICON_STEP = (iconName, text) => [icon(iconName), " ", text];
+  const INSTALL_STEPS = {
+    "ios-safari": [
+      ["Tap the ", ...ICON_STEP("dots", "button"), " at the bottom right, next to the address. On older iPhones, tap the ", ...ICON_STEP("share", "Share"), " button in the bottom bar instead and skip the next step."],
+      ["Tap ", ...ICON_STEP("share", "Share"), "."],
+      ["Scroll down the list and tap ", ...ICON_STEP("addsq", "Add to Home Screen"), ". Don't see it? Tap ", el("b", {}, "View More"), " first."],
+      ["Tap ", el("b", {}, "Add"), ", then open Pantry Shelf from the new icon on your home screen."],
+    ],
+    "ios-chrome": [
+      ["Tap ", ...ICON_STEP("share", "Share"), " at the top right, inside the address bar."],
+      ["Scroll down and tap ", ...ICON_STEP("addsq", "Add to Home Screen"), "."],
+      ["Tap ", el("b", {}, "Add"), ", then open Pantry Shelf from the new icon."],
+    ],
+    "ios-other": [
+      ["Open the browser menu and tap ", ...ICON_STEP("share", "Share"), "."],
+      ["Tap ", ...ICON_STEP("addsq", "Add to Home Screen"), ", then ", el("b", {}, "Add"), "."],
+    ],
+    "ios-inapp": [
+      ["This page is open inside another app, which can't add it to the home screen. Open it in Safari first: tap ", ...ICON_STEP("dots", ""), " or the compass icon and choose ", el("b", {}, "Open in Safari"), ", or copy the address into Safari."],
+      ["In Safari, come back to Settings > This device for the next steps."],
+    ],
+    android: [
+      ["Tap the ", el("b", {}, "⋮"), " menu at the top right of Chrome."],
+      ["Tap ", el("b", {}, "Add to Home screen"), " or ", el("b", {}, "Install app"), ", then ", el("b", {}, "Install"), "."],
+    ],
+    "android-inapp": [
+      ["This page is open inside another app. Tap its ", el("b", {}, "⋮"), " menu and choose ", el("b", {}, "Open in Chrome"), ", then come back here."],
+    ],
+    samsung: [
+      ["Tap the ", el("b", {}, "≡"), " menu at the bottom right."],
+      ["Tap ", el("b", {}, "Add page to"), ", then ", el("b", {}, "Home screen"), "."],
+    ],
+    desktop: [
+      ["In Chrome or Edge, click the install icon at the right end of the address bar, or open the menu and choose ", el("b", {}, "Install Pantry Shelf"), "."],
+    ],
+  };
   function renderInstall() {
+    const kind = browserKind(), steps = $("#installSteps");
     $("#installBtn").hidden = !installEvt;
-    $("#installNote").textContent = standalone() ? "Opened from the home screen. The shelf still shows when you're offline."
-      : installEvt ? "Add Pantry Shelf to the home screen to open it like an app, even offline."
-      : isIOS ? "To open it like an app: tap Share, then Add to Home Screen."
-      : "To open it like an app, use your browser's menu and choose Install or Add to Home screen.";
+    steps.hidden = standalone() || !!installEvt;
+    if (standalone()) $("#installNote").textContent = "Opened from the home screen. The shelf still shows when you're offline.";
+    else if (installEvt) $("#installNote").textContent = "Add Pantry Shelf to the home screen to open it like an app, even offline.";
+    else {
+      $("#installNote").textContent = "To open it like an app, add it to your home screen:";
+      steps.replaceChildren(...INSTALL_STEPS[kind].map((parts) => el("li", {}, ...parts)));
+    }
   }
   $("#installBtn").addEventListener("click", async () => { if (!installEvt) return; installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; renderInstall(); });
   renderInstall();

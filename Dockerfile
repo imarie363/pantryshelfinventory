@@ -4,7 +4,7 @@ WORKDIR /app
 ENV NODE_ENV=production DATA_DIR=/data BACKUP_DIR=/backups PORT=3000
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
-COPY server.js ./
+COPY server.js report.js ./
 COPY public ./public
 RUN mkdir -p /data /backups && chown node:node /data /backups
 USER node
