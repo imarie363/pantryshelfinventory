@@ -107,6 +107,8 @@ mkdir -p /srv/pantry-backups && chown 1000:1000 /srv/pantry-backups
 
 **Restore:** **Settings > Backups > Restore a backup** puts back one of the saved backups, or a file you upload (for example from that email). What's there before the restore is saved first as `pantry-before-restore-….json`, so a restore can be undone the same way.
 
+**A second machine:** to keep a ready copy of the app on another VM that can take over within minutes, plus a nightly backup of the whole VM in Proxmox, see [docs/high-availability.md](docs/high-availability.md).
+
 ## Updating
 
 ### Automatically from GitHub
