@@ -233,7 +233,7 @@ function logEvent(item, outcome, qty, by) {
 const amount = (e) => (COUNTABLE.has(e.unit) && e.qty > 0 ? e.qty : 1);
 const monthKey = (t) => isoDay(new Date(t)).slice(0, 7);
 function historySummary() {
-  const events = Object.values(historyDb.data).sort((a, b) => b.at - a.at);
+  const events = Object.entries(historyDb.data).map(([id, e]) => ({ ...e, id })).sort((a, b) => b.at - a.at);
   const now = new Date(), months = [];
   for (let i = 5; i >= 0; i--) months.push(monthKey(new Date(now.getFullYear(), now.getMonth() - i, 1)));
   const byMonth = Object.fromEntries(months.map((m) => [m, { month: m, used: 0, wasted: 0 }]));
@@ -695,6 +695,24 @@ async function api(req, res, p, me) {
     return send(res, 200, await sendReminder({ force: true }));
   }
   if (p === "/api/history" && req.method === "GET") return send(res, 200, historySummary());
+  // Remove one entry, e.g. something logged while trying the app out
+  const histMatch = p.match(/^\/api\/history\/([\w-]{1,64})$/);
+  if (histMatch && req.method === "DELETE") {
+    if (!historyDb.data[histMatch[1]]) return send(res, 404, { error: "That entry is already gone." });
+    delete historyDb.data[histMatch[1]]; await historyDb.save(); bump();
+    return send(res, 200, { ok: true });
+  }
+  // Start the history over; a backup with the old history is saved first
+  if (p === "/api/history" && req.method === "DELETE") {
+    let safety = null;
+    if (backupDirOk) {
+      const d = new Date();
+      safety = path.basename(await writeBackup(`pantry-before-clear-history-${isoDay(d)}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.json`));
+    }
+    historyDb.data = {}; await historyDb.save(); bump();
+    console.log(`History cleared by ${me.name}.`);
+    return send(res, 200, { ok: true, safety });
+  }
 
   // ---- people: a login for each person in the household
   if (p === "/api/people" && req.method === "GET") {
