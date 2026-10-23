@@ -76,6 +76,18 @@ The tunnel's status in Cloudflare should turn **Healthy**. Open `https://pantry.
 
 Under **Settings > People**, add a name and password for each person. The login screen then asks for a name; leaving the name empty still works with the household password. Tap a person's picture to give them a photo (cropped to a circle) or pick an emoji avatar; it shows in the header, the People list and the History tab. Anyone logged in can add or remove people and set a new password. Changing a password logs that person out on their other phones.
 
+## Households for friends
+
+One site can hold several households, each with its own shelf, shopping list, history, cover photo, reminders and people. Nobody sees another household's data.
+
+- **Your household is the first one.** After the update, everything that was there stays as it was. The people in it are the site's admins and see **Settings > Site admin**.
+- **Inviting a friend:** in **Site admin**, tap **Make an invite code** and send it (the **Share** button sends a link that fills the code in). Each code works once, for 14 days. Your friend opens the site, taps **Create a household**, and picks a household name, their name and a password. They then add the people they live with under **Settings > People**.
+- **Limits:** up to 10 households of up to 5 people each. Change them with `MAX_HOUSEHOLDS` and `MAX_MEMBERS` in `.env`. With `OPEN_SIGNUP=true`, anyone can create a household without a code until the site is full.
+- **Names are unique on the whole site**, because the login asks for a name. If a name is taken, add a letter, like "Ana S".
+- **Email:** the site sends every household's emails with one account (your Gmail), set by an admin in **Settings > Reminders**. Each household only fills in who gets them.
+- **Removing:** an admin can delete another household in **Site admin**, and each household can delete itself under **Settings > Household**. Its last state is kept as a backup in `/srv/pantry-backups` until backups that old are cleaned up.
+- The household password from `.env` keeps working, for the first household only.
+
 ## Phone notifications
 
 Open **Settings > Phone notifications** on each phone and tap **Turn on for this phone**. The daily reminder then pops up there at the reminder time, next to (or instead of) the email.
@@ -87,13 +99,13 @@ The server makes its own notification keys the first time and keeps them in the 
 
 ## Email reminders (Gmail)
 
-Set them up in the app: **Settings > Reminders**. You choose on/off, how often (every day, once a week on a chosen day, or once a month on a chosen date), the time, how many days ahead to look, who gets the email, and the Gmail account that sends it. Changes apply straight away, without a redeploy.
+Set them up in the app: **Settings > Reminders**. You choose on/off, how often (every day, once a week on a chosen day, or once a month on a chosen date), the time, how many days ahead to look, and who gets the email. Admins also set the Gmail account that sends the emails for every household. Changes apply straight away, without a redeploy.
 
 1. Turn on 2-Step Verification at https://myaccount.google.com/security.
 2. Create an app password at https://myaccount.google.com/apppasswords (name it `Pantry Shelf`).
 3. In the app, fill in **Send to**, **Gmail address** and **App password**, tap **Save**, then **Send a test email**.
 
-The settings are stored in the app's data volume (`settings.json`). Any `SMTP_*`, `MAIL_TO` or `REMINDER_*` values in `.env` are only used as starting values until you save in the app. No email is sent on days when nothing is due.
+The settings are stored in the app's data volume (`settings.json` per household, the sending account in `site.json`). Any `SMTP_*`, `MAIL_TO` or `REMINDER_*` values in `.env` are only used as starting values until you save in the app. No email is sent on days when nothing is due.
 
 ## Backups
 

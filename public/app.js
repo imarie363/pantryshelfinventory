@@ -26,7 +26,7 @@
     try { res = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined, credentials: "same-origin" }); }
     catch { throw new Error("No connection right now. Try again when you're back online."); }
     const data = await res.json().catch(() => ({}));
-    if (res.status === 401 && url !== "/api/login") { showLogin(data); throw Object.assign(new Error("login"), { status: 401 }); }
+    if (res.status === 401 && url !== "/api/login" && url !== "/api/signup") { showLogin(data); throw Object.assign(new Error("login"), { status: 401 }); }
     if (!res.ok) throw Object.assign(new Error(data.error || "Request failed"), { status: res.status });
     return data;
   }
@@ -36,6 +36,7 @@
       items = new Map(Object.entries(data.items || {}));
       shopping = new Map(Object.entries(data.shopping || {}));
       applyCover(data.cover, data.coverPos);
+      if (data.household) showHousehold(data.household.name);
       loaded = true;
       if (data.offline) {
         const when = data.savedAt ? new Date(data.savedAt).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" }) : "earlier";
@@ -117,14 +118,48 @@
       $("#nameField").hidden = !info.hasPeople;
       $("#nameField .small").hidden = !info.householdPassword;
       $("#pwLabel").textContent = info.hasPeople ? "Password" : "Household password";
+      // New households: with an invite code, or open to anyone, until the site is full
+      $("#signupLink").hidden = !!info.full || !info.signup;
+      $("#siteFull").hidden = !info.full || !$("#signupForm").hidden;
+      $("#codeField").hidden = info.signup === "open";
+      $("#su-code").required = info.signup !== "open";
     }
-    ($("#nameField").hidden ? $("#pw") : $("#who")).focus();
+    // An invite link (…/#join=CODE) opens the sign-up form with the code filled in
+    const join = /^#join=([\w-]+)$/.exec(location.hash);
+    if (join && !info.full) { $("#su-code").value = join[1]; showSignup(true); return; }
+    if ($("#signupForm").hidden) ($("#nameField").hidden ? $("#pw") : $("#who")).focus();
+  }
+  function showSignup(on) {
+    $("#loginForm").hidden = on; $("#loginIntro").hidden = on; $("#signupForm").hidden = !on;
+    $("#loginError").textContent = ""; $("#signupError").textContent = "";
+    (on ? ($("#su-code").value || $("#codeField").hidden ? $("#su-house") : $("#su-code")) : $("#nameField").hidden ? $("#pw") : $("#who")).focus();
+  }
+  $("#toSignup").addEventListener("click", () => showSignup(true));
+  $("#toLogin").addEventListener("click", () => showSignup(false));
+  $("#signupForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("#signupError").textContent = "";
+    try {
+      await api("POST", "/api/signup", { code: $("#su-code").value, household: $("#su-house").value, name: $("#su-name").value, password: $("#su-pass").value });
+      $("#su-pass").value = "";
+      if (location.hash.startsWith("#join=")) history.replaceState(null, "", location.pathname);
+      showSignup(false);
+      start();
+      toast("Welcome! Your household is ready. Add the people you live with in Settings.");
+    } catch (err) { $("#signupError").textContent = err.message; }
+  });
+  function showHousehold(name) {
+    $("#hhName").textContent = name; $("#hhName").hidden = !name;
+    if (document.activeElement !== $("#hh-name")) $("#hh-name").value = name;
   }
   function showApp(session) {
     $("#loginView").hidden = true; $("#appView").hidden = false; $("#dock").hidden = false;
     me = session.me || null;
     passwordProtected = !!session.passwordProtected;
     renderMeChip();
+    if (me?.household) showHousehold(me.household);
+    $("#adminCard").hidden = !me?.admin;
+    $("#hhDeleteBox").hidden = !!me?.admin; // the first household (the admins') stays
     $("#logout").hidden = !session.passwordProtected;
     $("#myPass").hidden = !me || me.id === "h";
     $("#meNote").textContent = session.offline ? "Offline right now." : me && session.passwordProtected ? `Logged in as ${me.name}${me.id === "h" ? " (the shared household password)" : ""}.` : "";
@@ -450,22 +485,28 @@
         if (![...days.options].some((o) => +o.value === r.days)) days.append(el("option", { value: r.days }, `${r.days} days`));
         days.value = String(r.days);
         $("#r-to").value = r.mailTo;
-        $("#r-user").value = r.smtpUser;
-        $("#r-pass").value = "";
-        $("#r-pass").placeholder = r.hasPassword ? "Saved. Leave empty to keep it" : "16 letters from Google";
-        $("#r-host").value = r.smtpHost;
-        $("#r-port").value = String(r.smtpPort);
+        $("#mailAccount").hidden = !r.canEditMail;
+        if (r.canEditMail) {
+          $("#r-user").value = r.smtpUser;
+          $("#r-pass").value = "";
+          $("#r-pass").placeholder = r.hasPassword ? "Saved. Leave empty to keep it" : "16 letters from Google";
+          $("#r-host").value = r.smtpHost;
+          $("#r-port").value = String(r.smtpPort);
+        }
       }
+      $("#mailNote").hidden = r.canEditMail;
+      $("#mailNote").textContent = r.mailReady ? "The site sends the emails for you." : "Email isn't set up on this site yet. Ask the person who runs it.";
       renderBackups(s.backups);
       renderPush(s.push);
       loadPeople();
+      if (me?.admin) loadAdmin();
     } catch (err) { if (err.status !== 401) $("#remStatus").textContent = "Couldn't load the settings."; }
   }
   async function saveReminders() {
     await api("PUT", "/api/settings/reminders", {
       enabled: $("#r-enabled").checked, time: $("#r-time").value, days: Number($("#r-days").value),
       frequency: $("#r-freq").value, weekday: Number($("#r-weekday").value), monthday: Number($("#r-monthday").value), mailTo: $("#r-to").value,
-      smtpUser: $("#r-user").value.trim(), smtpPass: $("#r-pass").value, smtpHost: $("#r-host").value.trim() || "smtp.gmail.com", smtpPort: Number($("#r-port").value),
+      ...($("#mailAccount").hidden ? {} : { smtpUser: $("#r-user").value.trim(), smtpPass: $("#r-pass").value, smtpHost: $("#r-host").value.trim() || "smtp.gmail.com", smtpPort: Number($("#r-port").value) }),
     });
     remLoaded = false;
     await loadSettings();
@@ -613,6 +654,61 @@
     try { await api("DELETE", `/api/people/${avatarFor_.id}/avatar`); await afterAvatar(null); } catch (err) { if (err.status !== 401) toast(err.message); }
   });
 
+  // ---------- household ----------
+  $("#hhForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try { const r = await api("PUT", "/api/household", { name: $("#hh-name").value }); showHousehold(r.name); toast("Household renamed"); }
+    catch (err) { if (err.status !== 401) toast(err.message); }
+  });
+  $("#hhDelete").addEventListener("click", async () => {
+    const name = $("#hhName").textContent;
+    const typed = prompt(`This deletes ${name} for everyone in it. Type the household's name to confirm:`);
+    if (typed === null) return;
+    try {
+      await api("DELETE", "/api/household", { confirm: typed });
+      if ("caches" in window) caches.delete("pantry-data").catch(() => {});
+      items = new Map(); shopping = new Map(); render();
+      toast("Household deleted"); start();
+    } catch (err) { if (err.status !== 401) toast(err.message); }
+  });
+
+  // ---------- site admin: households and invite codes ----------
+  const inviteLink = (code) => `${location.origin}/#join=${code}`;
+  function renderAdmin(a) {
+    $("#adminStatus").textContent = `${a.households.length} of ${a.limits.households} households, up to ${a.limits.members} people each.${a.openSignup ? " Anyone can sign up (OPEN_SIGNUP)." : ""}`;
+    $("#hhList").replaceChildren(...a.households.map((x) => el("li", {},
+      el("span", { class: "stack" }, el("b", {}, x.name + (x.first ? " (yours)" : "")),
+        el("span", { class: "meta" }, `${x.members.length ? x.members.join(", ") : "No one yet"} · ${x.items} item${x.items === 1 ? "" : "s"}`)),
+      x.first ? null : el("button", { class: "linkish danger", type: "button", onclick: () => adminDelete(x) }, "Delete"))));
+    $("#inviteList").replaceChildren(...a.invites.map((v) => el("li", {},
+      el("span", { class: "stack" }, el("span", { class: "code" }, v.code), el("span", { class: "meta" }, `Works until ${nice(new Date(v.expires), false)}`)),
+      el("span", { class: "tools" },
+        el("button", { class: "linkish", type: "button", onclick: () => shareInvite(v.code) }, "Share"),
+        el("button", { class: "linkish danger", type: "button", onclick: () => revokeInvite(v.code) }, "Remove")))));
+    $("#inviteList").hidden = !a.invites.length;
+    $("#inviteNew").disabled = a.households.length >= a.limits.households;
+  }
+  async function loadAdmin() {
+    try { renderAdmin(await api("GET", "/api/admin")); } catch (err) { if (err.status !== 401) $("#adminStatus").textContent = "Couldn't load the site overview."; }
+  }
+  async function shareInvite(code) {
+    const text = `Join me on Pantry Shelf! Create your household here: ${inviteLink(code)} (invite code ${code})`;
+    if (navigator.share) { try { await navigator.share({ title: "Pantry Shelf invite", text }); return; } catch (e) { if (e.name === "AbortError") return; } }
+    try { await navigator.clipboard.writeText(text); toast("Invite copied. Paste it in a message to your friend."); }
+    catch { prompt("Copy this and send it to your friend:", text); }
+  }
+  $("#inviteNew").addEventListener("click", async () => {
+    try { const r = await api("POST", "/api/admin/invites"); renderAdmin(r); shareInvite(r.code); }
+    catch (err) { if (err.status !== 401) toast(err.message); }
+  });
+  async function revokeInvite(code) {
+    try { renderAdmin(await api("DELETE", `/api/admin/invites/${code}`)); toast("Code removed"); } catch (err) { if (err.status !== 401) toast(err.message); }
+  }
+  async function adminDelete(x) {
+    if (!confirm(`Delete ${x.name}? Its shelf, history and the logins of ${x.members.join(", ") || "its people"} are removed. A last backup is kept for a while.`)) return;
+    try { renderAdmin(await api("DELETE", `/api/admin/households/${x.id}`)); toast(`${x.name} deleted`); } catch (err) { if (err.status !== 401) toast(err.message); }
+  }
+
   // ---------- people ----------
   let passFor = null; // person id the password dialog is for
   async function loadPeople() {
@@ -629,6 +725,9 @@
           el("button", { class: "linkish", type: "button", onclick: () => openPass(p) }, "New password"),
           p.id === r.me?.id ? null : el("button", { class: "linkish danger", type: "button", onclick: () => removePerson(p) }, "Remove")))));
       $("#peopleList").hidden = !r.people.length;
+      const full = r.people.length >= r.maxMembers;
+      $("#peopleLimit").textContent = full ? `That's the most for one household (${r.maxMembers} people).` : `A household can have up to ${r.maxMembers} people.`;
+      $("#personForm").hidden = full;
     } catch (err) { if (err.status !== 401) $("#hhNote").textContent = "Couldn't load the people list."; }
   }
   $("#personForm").addEventListener("submit", async (e) => {
