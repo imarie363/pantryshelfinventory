@@ -422,7 +422,7 @@ input[type="range"] { padding: 0; min-height: 0; height: 32px; border: 0; backgr
 .activity li.a-wasted .avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--expired); }
 .activity li.a-added .avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent-2); }
 .activity li .avatar { margin: 4px 6px 4px 4px; }
-@media (max-width: 480px) { .rem-form > .row2 { grid-template-columns: 1fr; } }
+@media (max-width: 480px) { .rem-form > .row2, #summaryWhen { grid-template-columns: 1fr; } }
 
 /* ---------- version 2.3: avatars are always perfect circles ---------- */
 .avatar { aspect-ratio: 1; flex: 0 0 auto; box-sizing: border-box; border-radius: 50%; overflow: hidden; }

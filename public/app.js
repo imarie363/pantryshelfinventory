@@ -499,9 +499,12 @@
       : "Off: the server can't write to its backup folder. See the setup guide.";
     $("#bakRun").hidden = !b.enabled;
     $("#bakEmail").checked = b.emailCopy;
+    $("#summaryWhen").hidden = !b.emailCopy;
+    if (document.activeElement !== $("#s-day")) $("#s-day").value = String(b.summaryDay ?? 0);
+    if (document.activeElement !== $("#s-time")) $("#s-time").value = b.summaryTime || "02:30";
     $("#bakEmail").disabled = !b.emailReady && !b.emailCopy;
     $("#bakEmailNote").textContent = !b.emailReady ? "Set up the reminder email above first; the copy goes to the same addresses."
-      : `A summary of the shelf with a PDF report, plus the backup file, so a copy is kept in your inbox in case the server's disk fails. It goes to the reminder email addresses.${b.lastEmailed ? ` Last sent ${b.lastEmailed}.` : ""}`;
+      : `${b.emailCopy ? `Every ${WEEKDAYS[b.summaryDay ?? 0]} at ${b.summaryTime}: a` : "A"} summary of the shelf with a PDF report, plus the backup file, so a copy is kept in your inbox in case the server's disk fails. It goes to the reminder email addresses.${b.lastEmailed ? ` Last sent ${b.lastEmailed}.` : ""}`;
     const pick = $("#bakPick"), files = b.files || [];
     pick.replaceChildren(...files.map((f) => el("option", { value: f.file }, fileDate(f.file))));
     pick.closest(".field").hidden = !files.length;
@@ -516,6 +519,12 @@
       else toast("Weekly email copy switched off");
     } catch (err) { if (err.status !== 401) { toast(err.message); loadSettings(); } }
   });
+  async function saveSummaryWhen() {
+    try { const r = await api("PUT", "/api/settings/backups", { summaryDay: Number($("#s-day").value), summaryTime: $("#s-time").value }); renderBackups(r.backups); toast("Weekly summary time saved"); }
+    catch (err) { if (err.status !== 401) toast(err.message); }
+  }
+  $("#s-day").addEventListener("change", saveSummaryWhen);
+  $("#s-time").addEventListener("change", saveSummaryWhen);
   async function restore(headers, body, label) {
     if (!confirm(`Put back ${label}? This replaces the shelf, shopping list and history for everyone. What's there now is saved first.`)) return;
     try {
