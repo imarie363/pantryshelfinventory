@@ -159,6 +159,7 @@
     renderMeChip();
     if (me?.household) showHousehold(me.household);
     $("#adminCard").hidden = !me?.admin;
+    $("#backupCard").hidden = !me?.admin;
     $("#hhDeleteBox").hidden = !me || me.hid === "main"; // the first household stays
     $("#logout").hidden = !session.passwordProtected;
     $("#myPass").hidden = !me || me.id === "h";
@@ -533,20 +534,23 @@
     try { await api("POST", "/api/backup/run"); toast("Backup saved"); loadSettings(); } catch (err) { if (err.status !== 401) toast(err.message); }
   });
 
-  // ---------- backups: weekly email copy and restore ----------
+  // ---------- weekly report (everyone) and backups (admins) ----------
   const fileDate = (f) => f.replace(/^pantry-|\.json$/g, "").replace(/^before-restore-(\d{4}-\d{2}-\d{2})-(\d\d)(\d\d)\d\d$/, "$1 $2:$3 (before a restore)");
   function renderBackups(b) {
-    $("#bakStatus").textContent = b.enabled
-      ? `Every night at ${b.time}, kept for ${b.keepDays} days. ${b.count ? `${b.count} saved, latest ${fileDate(b.latest)}.` : "None saved yet."}`
-      : "Off: the server can't write to its backup folder. See the setup guide.";
-    $("#bakRun").hidden = !b.enabled;
+    if (b.enabled !== undefined) {
+      $("#bakStatus").textContent = b.enabled
+        ? `Every night at ${b.time}, kept for ${b.keepDays} days. ${b.count ? `${b.count} saved, latest ${fileDate(b.latest)}.` : "None saved yet."}`
+        : "Off: the server can't write to its backup folder. See the setup guide.";
+      $("#bakRun").hidden = !b.enabled;
+    }
+    $("#reportEmailNow").disabled = !b.emailReady;
     $("#bakEmail").checked = b.emailCopy;
     $("#summaryWhen").hidden = !b.emailCopy;
     if (document.activeElement !== $("#s-day")) $("#s-day").value = String(b.summaryDay ?? 0);
     if (document.activeElement !== $("#s-time")) $("#s-time").value = b.summaryTime || "02:30";
     $("#bakEmail").disabled = !b.emailReady && !b.emailCopy;
-    $("#bakEmailNote").textContent = !b.emailReady ? "Set up the reminder email above first; the copy goes to the same addresses."
-      : `${b.emailCopy ? `Every ${WEEKDAYS[b.summaryDay ?? 0]} at ${b.summaryTime}: a` : "A"} summary of the shelf with a PDF report, plus the backup file, so a copy is kept in your inbox in case the server's disk fails. It goes to the reminder email addresses.${b.lastEmailed ? ` Last sent ${b.lastEmailed}.` : ""}`;
+    $("#bakEmailNote").textContent = !b.emailReady ? "Fill in who gets the reminder email above first; the report goes to the same addresses."
+      : `${b.emailCopy ? `Every ${WEEKDAYS[b.summaryDay ?? 0]} at ${b.summaryTime}, the` : "The"} report goes to the reminder email addresses with the PDF attached${b.withBackup ? ", plus the backup file so a copy is kept in your inbox" : ""}.${b.lastEmailed ? ` Last sent ${b.lastEmailed}.` : ""}`;
     const pick = $("#bakPick"), files = b.files || [];
     pick.replaceChildren(...files.map((f) => el("option", { value: f.file }, fileDate(f.file))));
     pick.closest(".field").hidden = !files.length;
@@ -557,12 +561,18 @@
     try {
       const r = await api("PUT", "/api/settings/backups", { emailCopy: on });
       renderBackups(r.backups);
-      if (on) { toast("Sending the first copy now…"); await api("POST", "/api/backup/email"); toast("Backup emailed. Check your inbox."); loadSettings(); }
-      else toast("Weekly email copy switched off");
+      if (on) { toast("Sending the first report now…"); await api("POST", "/api/report/email"); toast("Report emailed. Check your inbox."); loadSettings(); }
+      else toast("Weekly report email switched off");
     } catch (err) { if (err.status !== 401) { toast(err.message); loadSettings(); } }
   });
+  $("#reportEmailNow").addEventListener("click", async (e) => {
+    const btn = e.currentTarget; btn.disabled = true;
+    try { toast("Sending the report…"); await api("POST", "/api/report/email"); toast("Report emailed. Check your inbox."); loadSettings(); }
+    catch (err) { if (err.status !== 401) toast(err.message); }
+    finally { btn.disabled = false; }
+  });
   async function saveSummaryWhen() {
-    try { const r = await api("PUT", "/api/settings/backups", { summaryDay: Number($("#s-day").value), summaryTime: $("#s-time").value }); renderBackups(r.backups); toast("Weekly summary time saved"); }
+    try { const r = await api("PUT", "/api/settings/backups", { summaryDay: Number($("#s-day").value), summaryTime: $("#s-time").value }); renderBackups(r.backups); toast("Weekly report time saved"); }
     catch (err) { if (err.status !== 401) toast(err.message); }
   }
   $("#s-day").addEventListener("change", saveSummaryWhen);

@@ -29,7 +29,7 @@ function summarize({ items, shopping, history, days = 7 }) {
 }
 
 // ---------- email ----------
-function html(s, { day, appUrl }) {
+function html(s, { day, appUrl, withBackup }) {
   const C = COLORS;
   const box = (n, label, color, bg) => `<td width="33%" valign="top" style="padding:4px"><div style="background:${bg};border-radius:12px;padding:14px 12px 12px;height:62px">
     <div style="font:800 28px/1 Arial,sans-serif;color:${color}">${n}</div><div style="font:700 12px/1.3 Arial,sans-serif;color:${color};margin-top:6px">${label}</div></div></td>`;
@@ -60,12 +60,14 @@ function html(s, { day, appUrl }) {
 ${parts.join("\n")}
 ${appUrl ? `<tr><td style="padding:24px"><a href="${esc(appUrl)}" style="display:inline-block;background:${C.accent};color:#fff;font:700 15px Arial,sans-serif;text-decoration:none;padding:12px 20px;border-radius:12px">Open the shelf</a></td></tr>` : ""}
 <tr><td style="padding:${appUrl ? "0" : "24px"} 24px 24px;font:13px/1.5 Arial,sans-serif;color:${C.muted}">
-  Attached: <b>pantry-report-${day}.pdf</b>, the full list to read or print, and <b>pantry-backup-${day}.json</b>, your backup. Keep this email: to put the backup back, open Settings &gt; Backups &gt; Restore a backup &gt; Restore from a file.
+  ${withBackup
+    ? `Attached: <b>pantry-report-${day}.pdf</b>, the full list to read or print, and <b>pantry-backup-${day}.json</b>, your backup. Keep this email: to put the backup back, open Settings &gt; Backups &gt; Restore a backup &gt; Restore from a file.`
+    : `Attached: <b>pantry-report-${day}.pdf</b>, the full list to read or print.`}
 </td></tr>
 </table></td></tr></table></body></html>`;
 }
 
-function text(s, { day, appUrl }) {
+function text(s, { day, appUrl, withBackup }) {
   const line = (i) => `- ${i.name} (${qty(i)}, ${i.place || "Pantry"}): ${when(i.days)}`;
   const useFirst = [...s.expired, ...s.soon];
   const m = s.month;
@@ -75,7 +77,7 @@ function text(s, { day, appUrl }) {
     useFirst.length ? `Use first:\n${useFirst.map(line).join("\n")}` : `Nothing expires in the next ${s.days} days.`,
     `This month: ${m.used} used, ${m.wasted} thrown away.`,
     s.shopping.length ? `Shopping list: ${s.shopping.map((e) => e.name).join(", ")}` : "",
-    "Attached: the full report (PDF) and your backup (JSON). To put the backup back: Settings > Backups > Restore a backup > Restore from a file.",
+    withBackup ? "Attached: the full report (PDF) and your backup (JSON). To put the backup back: Settings > Backups > Restore a backup > Restore from a file." : "Attached: the full report (PDF).",
     appUrl ? `Open the shelf: ${appUrl}` : "",
   ].filter(Boolean).join("\n\n");
 }
