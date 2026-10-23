@@ -268,6 +268,10 @@ function reminderSettings() {
     enabled: pick("enabled", true),
     time: pick("time", TIME_RE.test(env.REMINDER_TIME || "") ? env.REMINDER_TIME : "08:00"),
     days: pick("days", Number(env.REMINDER_DAYS) || 7),
+    // How often: every day, once a week on `weekday` (0 = Sunday), or once a month on `monthday`
+    frequency: pick("frequency", ["weekly", "monthly"].includes(env.REMINDER_FREQUENCY) ? env.REMINDER_FREQUENCY : "daily"),
+    weekday: pick("weekday", 1),
+    monthday: pick("monthday", 1),
     mailTo: pick("mailTo", env.MAIL_TO || ""),
     smtpHost: pick("smtpHost", env.SMTP_HOST || "smtp.gmail.com"),
     smtpPort: pick("smtpPort", Number(env.SMTP_PORT) || 587),
@@ -292,6 +296,12 @@ function saveReminderSettings(body) {
   next.enabled = body.enabled === undefined ? cur.enabled : !!body.enabled;
   next.time = body.time === undefined ? cur.time : String(body.time);
   if (!TIME_RE.test(next.time)) return "Pick a time like 08:00.";
+  next.frequency = body.frequency === undefined ? cur.frequency : String(body.frequency);
+  if (!["daily", "weekly", "monthly"].includes(next.frequency)) return "Pick every day, once a week or once a month.";
+  next.weekday = body.weekday === undefined ? cur.weekday : Number(body.weekday);
+  if (!Number.isInteger(next.weekday) || next.weekday < 0 || next.weekday > 6) return "Pick a day of the week.";
+  next.monthday = body.monthday === undefined ? cur.monthday : Number(body.monthday);
+  if (!Number.isInteger(next.monthday) || next.monthday < 1 || next.monthday > 31) return "Pick a day of the month.";
   next.days = body.days === undefined ? cur.days : Number(body.days);
   if (!Number.isInteger(next.days) || next.days < 1 || next.days > 60) return "Days ahead must be between 1 and 60.";
   const list = (body.mailTo === undefined ? cur.mailTo : String(body.mailTo)).split(/[,;\s]+/).filter(Boolean);
@@ -485,14 +495,21 @@ async function emailBackup() {
   metaDb.data.lastBackupEmail = day; await metaDb.save();
 }
 
+// Is today a reminder day? A month without the chosen date (say the 31st) uses its last day.
+function reminderDue(rs, now) {
+  if (rs.frequency === "weekly") return now.getDay() === rs.weekday;
+  if (rs.frequency === "monthly") return now.getDate() === Math.min(rs.monthday, new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate());
+  return true;
+}
+
 // ---------- daily scheduler (checks once a minute) ----------
 async function tick() {
   const now = new Date(), day = isoDay(now), t = hhmm(now), meta = metaDb.data;
   const rs = reminderSettings();
-  if (rs.enabled && t >= rs.time && meta.lastReminder !== day && activeChannels().length) {
+  if (rs.enabled && reminderDue(rs, now) && t >= rs.time && meta.lastReminder !== day && activeChannels().length) {
     meta.lastReminder = day; await metaDb.save();
     const r = await sendReminder();
-    console.log(`Daily reminder: ${r.skipped || `sent via ${r.sent.join(", ") || "nothing"}`}`);
+    console.log(`Reminder: ${r.skipped || `sent via ${r.sent.join(", ") || "nothing"}`}`);
   }
   if (t >= BACKUP_TIME && meta.lastBackup !== day && backupDirOk) {
     meta.lastBackup = day; await metaDb.save();
@@ -651,7 +668,7 @@ async function api(req, res, p, me) {
     return send(res, 200, {
       reminders: (() => {
         const r = reminderSettings();
-        return { channels: activeChannels(), enabled: r.enabled, time: r.time, days: r.days, mailTo: r.mailTo, smtpUser: r.smtpUser,
+        return { channels: activeChannels(), enabled: r.enabled, time: r.time, days: r.days, frequency: r.frequency, weekday: r.weekday, monthday: r.monthday, mailTo: r.mailTo, smtpUser: r.smtpUser,
           smtpHost: r.smtpHost, smtpPort: r.smtpPort, hasPassword: !!r.smtpPass, lastSent: metaDb.data.lastReminder || null,
           tz: Intl.DateTimeFormat().resolvedOptions().timeZone };
       })(),

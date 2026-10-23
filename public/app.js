@@ -412,8 +412,27 @@
     if (!r.channels.length) return "Not set up yet. Fill in the email below, or turn on phone notifications further down.";
     if (!r.enabled) return "Switched off. Nothing is sent until you switch it back on.";
     const how = r.channels.map((c) => NAMES[c] || c).join(" and ");
-    return `Every day at ${r.time} (${r.tz}) by ${how}, when something expires within ${r.days} days or has expired.${r.lastSent ? ` Last checked ${r.lastSent}.` : ""}`;
+    return `${whenText(r)} at ${r.time} (${r.tz}) by ${how}, when something expires within ${r.days} days or has expired.${r.lastSent ? ` Last checked ${r.lastSent}.` : ""}`;
   }
+  const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const ordinal = (n) => n + (n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th");
+  function whenText(r) {
+    if (r.frequency === "weekly") return `Every ${WEEKDAYS[r.weekday]}`;
+    if (r.frequency === "monthly") return r.monthday >= 31 ? "On the last day of every month" : `On the ${ordinal(r.monthday)} of every month${r.monthday > 28 ? " (or its last day)" : ""}`;
+    return "Every day";
+  }
+  $("#r-monthday").replaceChildren(...Array.from({ length: 30 }, (_, i) => el("option", { value: i + 1 }, ordinal(i + 1))), el("option", { value: 31 }, "Last day"));
+  function showFreq() {
+    const f = $("#r-freq").value;
+    $("#r-weekday-f").hidden = f !== "weekly";
+    $("#r-monthday-f").hidden = f !== "monthly";
+  }
+  // Weekly or monthly reminders need to look further ahead, or things expire between them
+  $("#r-freq").addEventListener("change", () => {
+    showFreq();
+    const want = { daily: 7, weekly: 14, monthly: 45 }[$("#r-freq").value], days = $("#r-days");
+    if (+days.value < want) days.value = String(want);
+  });
   async function loadSettings() {
     try {
       const s = await api("GET", "/api/settings");
@@ -423,6 +442,10 @@
         remLoaded = true;
         $("#r-enabled").checked = r.enabled;
         $("#r-time").value = r.time;
+        $("#r-freq").value = r.frequency || "daily";
+        $("#r-weekday").value = String(r.weekday ?? 1);
+        $("#r-monthday").value = String(r.monthday ?? 1);
+        showFreq();
         const days = $("#r-days");
         if (![...days.options].some((o) => +o.value === r.days)) days.append(el("option", { value: r.days }, `${r.days} days`));
         days.value = String(r.days);
@@ -440,7 +463,8 @@
   }
   async function saveReminders() {
     await api("PUT", "/api/settings/reminders", {
-      enabled: $("#r-enabled").checked, time: $("#r-time").value, days: Number($("#r-days").value), mailTo: $("#r-to").value,
+      enabled: $("#r-enabled").checked, time: $("#r-time").value, days: Number($("#r-days").value),
+      frequency: $("#r-freq").value, weekday: Number($("#r-weekday").value), monthday: Number($("#r-monthday").value), mailTo: $("#r-to").value,
       smtpUser: $("#r-user").value.trim(), smtpPass: $("#r-pass").value, smtpHost: $("#r-host").value.trim() || "smtp.gmail.com", smtpPort: Number($("#r-port").value),
     });
     remLoaded = false;
@@ -680,10 +704,10 @@
     if (Notification.permission === "denied") { st.textContent = "Notifications are blocked for this site. Allow them in the browser or phone settings, then reload."; return; }
     const sub = await currentSub().catch(() => null);
     if (sub) {
-      st.textContent = `On for this phone. The daily reminder pops up here.${others > 1 ? ` ${others} phones get it in total.` : ""}`;
+      st.textContent = `On for this phone. The reminder pops up here.${others > 1 ? ` ${others} phones get it in total.` : ""}`;
       off.hidden = test.hidden = false;
     } else {
-      st.textContent = `Get the daily reminder as a notification on this phone, at the reminder time above.${others ? ` ${others} other phone${others === 1 ? " has" : "s have"} it on.` : ""}`;
+      st.textContent = `Get the reminder as a notification on this phone, at the reminder time above.${others ? ` ${others} other phone${others === 1 ? " has" : "s have"} it on.` : ""}`;
       on.hidden = false;
     }
   }

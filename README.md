@@ -85,9 +85,9 @@ Open **Settings > Phone notifications** on each phone and tap **Turn on for this
 
 The server makes its own notification keys the first time and keeps them in the data volume (`vapid.json`).
 
-## Daily email reminders (Gmail)
+## Email reminders (Gmail)
 
-Set them up in the app: **Settings > Daily reminders**. You choose on/off, the time, how many days ahead to look, who gets the email, and the Gmail account that sends it. Changes apply straight away, without a redeploy.
+Set them up in the app: **Settings > Reminders**. You choose on/off, how often (every day, once a week on a chosen day, or once a month on a chosen date), the time, how many days ahead to look, who gets the email, and the Gmail account that sends it. Changes apply straight away, without a redeploy.
 
 1. Turn on 2-Step Verification at https://myaccount.google.com/security.
 2. Create an app password at https://myaccount.google.com/apppasswords (name it `Pantry Shelf`).
