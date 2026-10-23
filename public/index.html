@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
-<link rel="stylesheet" href="/styles.css?v=2.8">
+<link rel="stylesheet" href="/styles.css?v=2.9">
 </head>
 <body>
 <svg width="0" height="0" class="visually-hidden" aria-hidden="true">
@@ -241,17 +241,21 @@
       <div class="tools"><button class="btn primary" type="button" id="inviteNew">Make an invite code</button></div>
     </section>
     <section class="card">
-      <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-archive"/></svg></span><h3>Backups</h3></div>
-      <p id="bakStatus" class="muted">Checking…</p>
-      <div class="tools"><button class="btn" id="bakRun">Back up now</button><a class="btn" href="/api/backup" download>Download a copy</a></div>
-      <label class="switch"><input type="checkbox" id="bakEmail"><span class="track" aria-hidden="true"></span><span>Email a weekly summary and backup</span></label>
+      <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-chart"/></svg></span><h3>Weekly report</h3></div>
+      <p class="muted">A summary of the shelf: what to use soon, what expired, what ran out and what's on the shopping list.</p>
+      <div class="tools"><a class="btn" href="/api/report.pdf" target="_blank" rel="noopener">See this week's report (PDF)</a><button class="btn primary" type="button" id="reportEmailNow">Email it to me now</button></div>
+      <label class="switch"><input type="checkbox" id="bakEmail"><span class="track" aria-hidden="true"></span><span>Email the report every week</span></label>
       <div class="row2" id="summaryWhen" hidden>
         <div class="field"><label for="s-day">Every</label>
           <select id="s-day"><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="0">Sunday</option></select></div>
         <div class="field"><label for="s-time">At</label><input id="s-time" type="time"></div>
       </div>
       <p class="muted small" id="bakEmailNote"></p>
-      <div class="tools"><a class="btn" href="/api/report.pdf" target="_blank" rel="noopener">See this week's report (PDF)</a></div>
+    </section>
+    <section class="card" id="backupCard" hidden>
+      <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-archive"/></svg></span><h3>Backups</h3></div>
+      <p id="bakStatus" class="muted">Checking…</p>
+      <div class="tools"><button class="btn" id="bakRun">Back up now</button><a class="btn" href="/api/backup" download>Download a copy</a></div>
       <details class="more" id="restoreBox">
         <summary>Restore a backup</summary>
         <div class="restore">
@@ -389,6 +393,6 @@
 <script src="/vendor/qrcode.js"></script>
 <script src="/vendor/jsQR.js"></script>
 <script src="/vendor/zxing.min.js"></script>
-<script src="/app.js?v=2.8"></script>
+<script src="/app.js?v=2.9"></script>
 </body>
 </html>

@@ -115,9 +115,11 @@ Every night at `BACKUP_TIME` the app saves everything (items, shopping list, rem
 mkdir -p /srv/pantry-backups && chown 1000:1000 /srv/pantry-backups
 ```
 
-**Weekly email:** switch on **Settings > Backups > Email a weekly summary and backup**, then pick the day and time it goes out. The email shows what to use first, this month's used vs. thrown away, what's on the shelf and the shopping list. It has two attachments: a PDF report to read or print, and the backup file, so a copy is kept off the server. It uses the reminder email settings. **See this week's report (PDF)** shows the same report any time.
+**Weekly report:** every household has **Settings > Weekly report**. **Email it to me now** sends the report to the household's reminder email addresses, and **Email the report every week** sends it on the day and time they pick. The email shows what to use first, this month's used vs. thrown away, what's on the shelf and the shopping list, with a PDF of the same report attached. For the first household (the admin's) the backup file is attached too, so a copy is kept off the server. **See this week's report (PDF)** shows the report any time.
 
-**Restore:** **Settings > Backups > Restore a backup** puts back one of the saved backups, or a file you upload (for example from that email). What's there before the restore is saved first as `pantry-before-restore-….json`, so a restore can be undone the same way.
+**Backups card:** only admins see **Settings > Backups** (back up now, download, restore). The backup routes answer 403 for everyone else; friends' households are still backed up every night on the server.
+
+**Restore:** **Settings > Backups > Restore a backup** (admins) puts back one of the saved backups, or a file you upload (for example from that email). What's there before the restore is saved first as `pantry-before-restore-….json`, so a restore can be undone the same way.
 
 **A second machine:** to keep a ready copy of the app on another VM that can take over within minutes, plus a nightly backup of the whole VM in Proxmox, see [docs/high-availability.md](docs/high-availability.md).
 

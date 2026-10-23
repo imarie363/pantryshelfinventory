@@ -519,12 +519,14 @@ const summarySchedule = (h) => ({
   summaryDay: Number.isInteger(h.settings.data.summaryDay) ? h.settings.data.summaryDay : 0,
   summaryTime: TIME_RE.test(h.settings.data.summaryTime || "") ? h.settings.data.summaryTime : BACKUP_TIME,
 });
-async function backupStatus(h) {
+// Everyone sees the weekly report settings; only an admin sees the backup files.
+async function backupStatus(h, admin) {
   const sched = summarySchedule(h), emailCopy = !!h.settings.data.backupEmail;
-  if (!backupDirOk) return { enabled: false, emailCopy, emailReady: emailReady(h), ...sched };
+  const report = { emailCopy, emailReady: emailReady(h), withBackup: reportHasBackup(h), lastEmailed: h.meta.data.lastBackupEmail || null, ...sched };
+  if (!admin) return report;
+  if (!backupDirOk) return { enabled: false, ...report };
   const files = await listBackups(h);
-  return { enabled: true, time: BACKUP_TIME, keepDays: BACKUP_KEEP_DAYS, count: files.length, latest: files[0]?.file || null, files: files.slice(0, 40),
-    emailCopy, emailReady: emailReady(h), lastEmailed: h.meta.data.lastBackupEmail || null, ...sched };
+  return { enabled: true, time: BACKUP_TIME, keepDays: BACKUP_KEEP_DAYS, count: files.length, latest: files[0]?.file || null, files: files.slice(0, 40), ...report };
 }
 // Put a backup back. A copy of what's there now is saved first, so a restore can be undone.
 async function restoreSnapshot(h, snap) {
@@ -544,7 +546,9 @@ async function restoreSnapshot(h, snap) {
   h.bump();
   return { items: Object.keys(items).length, safety };
 }
-// The weekly email: a summary to read, the same as a PDF report, and the backup file for restoring
+// The weekly email: a summary to read and the same as a PDF report. The backup file only
+// goes along for the first household (the admin's); friends' households get the report alone.
+const reportHasBackup = (h) => h.id === MAIN;
 function weeklyReport(h) {
   const report = require("./report");
   const day = isoDay(new Date());
@@ -557,7 +561,7 @@ function weeklyReport(h) {
 async function emailBackup(h) {
   if (!mailAccountReady()) throw new Error("The site has no email account yet. An admin sets it up in Settings.");
   if (!emailReady(h)) throw new Error("Fill in who gets the reminder email first.");
-  const { report, summary, day } = weeklyReport(h), opts = { day, appUrl: APP_URL };
+  const { report, summary, day } = weeklyReport(h), opts = { day, appUrl: APP_URL, withBackup: reportHasBackup(h) };
   const bits = [summary.soon.length && `${summary.soon.length} to use soon`, summary.expired.length && `${summary.expired.length} expired`].filter(Boolean);
   await sendEmail({
     title: `Pantry this week: ${bits.length ? bits.join(", ") : `${summary.total} items, nothing urgent`}`,
@@ -565,7 +569,7 @@ async function emailBackup(h) {
     html: report.html(summary, opts),
     attachments: [
       { filename: `pantry-report-${day}.pdf`, content: await report.pdf(summary, opts), contentType: "application/pdf" },
-      { filename: `pantry-backup-${day}.json`, content: JSON.stringify(snapshot(h), null, 1), contentType: "application/json" },
+      ...(reportHasBackup(h) ? [{ filename: `pantry-backup-${day}.json`, content: JSON.stringify(snapshot(h), null, 1), contentType: "application/json" }] : []),
     ],
   }, h);
   h.meta.data.lastBackupEmail = day; await h.meta.save();
@@ -588,7 +592,7 @@ async function tick() {
       const r = await sendReminder(h);
       console.log(`Reminder for ${h.id}: ${r.skipped || `sent via ${r.sent.join(", ") || "nothing"}`}`);
     }
-    // Weekly summary with the PDF report and an off-machine copy of the backup
+    // Weekly summary with the PDF report (and, for the first household, the backup file)
     const ws = summarySchedule(h);
     if (h.settings.data.backupEmail && now.getDay() === ws.summaryDay && t >= ws.summaryTime && meta.lastBackupEmail !== day && emailReady(h)) {
       meta.lastBackupEmail = day; await h.meta.save();
@@ -795,7 +799,7 @@ async function api(req, res, p, me) {
           mailReady: mailAccountReady(acct), canEditMail: me.admin, lastSent: h.meta.data.lastReminder || null, tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
           ...(me.admin ? { smtpUser: acct.smtpUser, smtpHost: acct.smtpHost, smtpPort: acct.smtpPort, hasPassword: !!acct.smtpPass } : {}) };
       })(),
-      backups: await backupStatus(h),
+      backups: await backupStatus(h, me.admin),
       push: { devices: Object.keys(h.push.data).length },
     });
   }
@@ -924,7 +928,7 @@ async function api(req, res, p, me) {
     catch (e) { return send(res, 502, { error: e.message }); }
   }
 
-  // ---- backups: restore, and the weekly emailed copy
+  // ---- the weekly report (everyone) and backups (admins only)
   if (p === "/api/settings/backups" && req.method === "PUT") {
     const body = await readBody(req);
     if (body.emailCopy && !emailReady(h)) return send(res, 400, { error: mailAccountReady() ? "Fill in who gets the reminder email first, then switch this on." : "The site has no email account yet. Ask an admin to set it up." });
@@ -940,16 +944,17 @@ async function api(req, res, p, me) {
     }
     h.settings.data = next;
     await h.settings.save();
-    return send(res, 200, { ok: true, backups: await backupStatus(h) });
+    return send(res, 200, { ok: true, backups: await backupStatus(h, me.admin) });
   }
   if (p === "/api/report.pdf" && req.method === "GET") {
     const { report, summary, day } = weeklyReport(h);
     return send(res, 200, await report.pdf(summary, { day, appUrl: APP_URL }), { "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="pantry-report-${day}.pdf"` });
   }
-  if (p === "/api/backup/email" && req.method === "POST") {
+  if ((p === "/api/report/email" || p === "/api/backup/email") && req.method === "POST") {
     try { await emailBackup(h); return send(res, 200, { ok: true }); }
     catch (e) { return send(res, 400, { error: e.message }); }
   }
+  if (p.startsWith("/api/backup") && !me.admin) return send(res, 403, { error: "Only an admin can do that." });
   if (p === "/api/backup/restore" && req.method === "POST") {
     let snap;
     if ((req.headers["x-restore-file"] || "") !== "") {
@@ -972,7 +977,7 @@ async function api(req, res, p, me) {
   }
   if (p === "/api/backup/run" && req.method === "POST") {
     if (!backupDirOk) return send(res, 400, { error: "Backups are off: the backup folder isn't writable." });
-    await writeBackup(h, isoDay(new Date())); return send(res, 200, { ok: true, backups: await backupStatus(h) });
+    await writeBackup(h, isoDay(new Date())); return send(res, 200, { ok: true, backups: await backupStatus(h, true) });
   }
 
   // ---- this household: its name, or deleting it with everything in it
