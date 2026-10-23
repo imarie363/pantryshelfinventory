@@ -442,11 +442,17 @@ async function listBackups() {
   }
   return out.sort((a, b) => b.at - a.at);
 }
+// When the weekly summary goes out: a weekday (0 = Sunday) and a time, set in Settings > Backups
+const summarySchedule = () => ({
+  summaryDay: Number.isInteger(settingsDb.data.summaryDay) ? settingsDb.data.summaryDay : 0,
+  summaryTime: TIME_RE.test(settingsDb.data.summaryTime || "") ? settingsDb.data.summaryTime : BACKUP_TIME,
+});
 async function backupStatus() {
-  if (!backupDirOk) return { enabled: false, emailCopy: !!settingsDb.data.backupEmail, emailReady: emailReady() };
+  const sched = summarySchedule();
+  if (!backupDirOk) return { enabled: false, emailCopy: !!settingsDb.data.backupEmail, emailReady: emailReady(), ...sched };
   const files = await listBackups();
   return { enabled: true, time: BACKUP_TIME, keepDays: BACKUP_KEEP_DAYS, count: files.length, latest: files[0]?.file || null, files: files.slice(0, 40),
-    emailCopy: !!settingsDb.data.backupEmail, emailReady: emailReady(), lastEmailed: metaDb.data.lastBackupEmail || null };
+    emailCopy: !!settingsDb.data.backupEmail, emailReady: emailReady(), lastEmailed: metaDb.data.lastBackupEmail || null, ...sched };
 }
 // Put a backup back. A copy of what's there now is saved first, so a restore can be undone.
 async function restoreSnapshot(snap) {
@@ -515,8 +521,9 @@ async function tick() {
     meta.lastBackup = day; await metaDb.save();
     try { console.log("Backup written:", await runBackup()); } catch (e) { console.error("Backup failed:", e.message); }
   }
-  // Off-machine copy: every Sunday, after the nightly backup time, email the backup
-  if (settingsDb.data.backupEmail && now.getDay() === 0 && t >= BACKUP_TIME && meta.lastBackupEmail !== day && emailReady()) {
+  // Weekly summary with the PDF report and an off-machine copy of the backup
+  const ws = summarySchedule();
+  if (settingsDb.data.backupEmail && now.getDay() === ws.summaryDay && t >= ws.summaryTime && meta.lastBackupEmail !== day && emailReady()) {
     meta.lastBackupEmail = day; await metaDb.save();
     try { await emailBackup(); console.log("Backup emailed."); } catch (e) { console.error("Emailing the backup failed:", e.message); }
   }
@@ -790,7 +797,17 @@ async function api(req, res, p, me) {
   if (p === "/api/settings/backups" && req.method === "PUT") {
     const body = await readBody(req);
     if (body.emailCopy && !emailReady()) return send(res, 400, { error: "Set up the reminder email first, then switch this on." });
-    settingsDb.data = { ...settingsDb.data, backupEmail: !!body.emailCopy };
+    const next = { ...settingsDb.data };
+    if (body.emailCopy !== undefined) next.backupEmail = !!body.emailCopy;
+    if (body.summaryDay !== undefined) {
+      if (!Number.isInteger(body.summaryDay) || body.summaryDay < 0 || body.summaryDay > 6) return send(res, 400, { error: "Pick a day of the week." });
+      next.summaryDay = body.summaryDay;
+    }
+    if (body.summaryTime !== undefined) {
+      if (!TIME_RE.test(String(body.summaryTime))) return send(res, 400, { error: "Pick a time like 11:00." });
+      next.summaryTime = String(body.summaryTime);
+    }
+    settingsDb.data = next;
     await settingsDb.save();
     return send(res, 200, { ok: true, backups: await backupStatus() });
   }
