@@ -4,3 +4,7 @@ backups/
 node_modules/
 *.zip
 .DS_Store
+.role
+.ha/
+scripts/ha/ha.conf
+.env.new

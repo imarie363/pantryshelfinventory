@@ -6,7 +6,8 @@ services:
     volumes:
       - pantry-data:/data
       # Nightly backups land in this folder on the VM (created in the upgrade steps)
-      - /srv/pantry-backups:/backups
+      # (:z lets it work on RHEL with SELinux too; it does nothing elsewhere)
+      - /srv/pantry-backups:/backups:z
 
   # Cloudflare Tunnel: connects out to Cloudflare, so no router ports need opening.
   # Cloudflare provides the HTTPS certificate for your domain.
