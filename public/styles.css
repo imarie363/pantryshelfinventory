@@ -368,3 +368,12 @@ input::placeholder { color: color-mix(in srgb, var(--muted) 75%, transparent); }
 .restore { display: flex; flex-direction: column; gap: 14px; }
 @media (max-width: 380px) { .tabs button { font-size: .7rem; } }
 .group-title { font-family: var(--font-display); }
+
+/* ---------- home screen steps ---------- */
+.steps { margin: 0; padding: 0; list-style: none; counter-reset: s; display: flex; flex-direction: column; gap: 12px; }
+.steps li { counter-increment: s; position: relative; padding-left: 40px; line-height: 1.55; }
+.steps li::before {
+  content: counter(s); position: absolute; left: 0; top: -1px; width: 28px; height: 28px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; font-weight: 700; font-size: .85rem;
+}
+.steps .icon { width: 18px; height: 18px; vertical-align: -3px; color: var(--accent); }

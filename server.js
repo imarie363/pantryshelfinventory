@@ -343,7 +343,7 @@ async function sendTelegram({ title, body }) {
   if (!res.ok) throw new Error(`Telegram answered ${res.status}: ${(await res.text()).slice(0, 200)}`);
 }
 let mailer = null;
-async function sendEmail({ title, body, attachments }) {
+async function sendEmail({ title, body, html, attachments }) {
   const r = reminderSettings();
   if (!mailer) {
     const nodemailer = require("nodemailer");
@@ -351,7 +351,7 @@ async function sendEmail({ title, body, attachments }) {
   }
   const from = r.mailFrom || r.smtpUser;
   try {
-    await mailer.sendMail({ from: `Pantry Shelf <${from}>`, to: r.mailTo, subject: title, text: body, attachments });
+    await mailer.sendMail({ from: `Pantry Shelf <${from}>`, to: r.mailTo, subject: title, text: body, html, attachments });
   } catch (e) {
     if (e.code === "EAUTH") throw new Error("The mail account or app password was refused. Check them in Settings.");
     throw e;
@@ -455,13 +455,28 @@ async function restoreSnapshot(snap) {
   bump();
   return { items: Object.keys(items).length, safety };
 }
+// The weekly email: a summary to read, the same as a PDF report, and the backup file for restoring
+function weeklyReport() {
+  const report = require("./report");
+  const day = isoDay(new Date());
+  const summary = report.summarize({
+    items: sortedItems(), history: historySummary(), days: reminderSettings().days,
+    shopping: Object.values(shoppingDb.data).filter((e) => !e.done).sort((a, b) => a.addedAt - b.addedAt),
+  });
+  return { report, summary, day };
+}
 async function emailBackup() {
   if (!emailReady()) throw new Error("Set up the reminder email first (Gmail address, app password and who gets it).");
-  const day = isoDay(new Date()), n = Object.keys(itemsDb.data).length;
+  const { report, summary, day } = weeklyReport(), opts = { day, appUrl: APP_URL };
+  const bits = [summary.soon.length && `${summary.soon.length} to use soon`, summary.expired.length && `${summary.expired.length} expired`].filter(Boolean);
   await sendEmail({
-    title: `Pantry backup ${day}`,
-    body: `A copy of your pantry (${n} item${n === 1 ? "" : "s"} on the shelf, plus the shopping list and history) is attached.\n\nKeep this email. To put it back: Settings > Backups > Restore from a file.`,
-    attachments: [{ filename: `pantry-${day}.json`, content: JSON.stringify(snapshot(), null, 1), contentType: "application/json" }],
+    title: `Pantry this week: ${bits.length ? bits.join(", ") : `${summary.total} items, nothing urgent`}`,
+    body: report.text(summary, opts),
+    html: report.html(summary, opts),
+    attachments: [
+      { filename: `pantry-report-${day}.pdf`, content: await report.pdf(summary, opts), contentType: "application/pdf" },
+      { filename: `pantry-backup-${day}.json`, content: JSON.stringify(snapshot(), null, 1), contentType: "application/json" },
+    ],
   });
   metaDb.data.lastBackupEmail = day; await metaDb.save();
 }
@@ -717,6 +732,10 @@ async function api(req, res, p, me) {
     settingsDb.data = { ...settingsDb.data, backupEmail: !!body.emailCopy };
     await settingsDb.save();
     return send(res, 200, { ok: true, backups: await backupStatus() });
+  }
+  if (p === "/api/report.pdf" && req.method === "GET") {
+    const { report, summary, day } = weeklyReport();
+    return send(res, 200, await report.pdf(summary, { day, appUrl: APP_URL }), { "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="pantry-report-${day}.pdf"` });
   }
   if (p === "/api/backup/email" && req.method === "POST") {
     try { await emailBackup(); return send(res, 200, { ok: true }); }

@@ -81,7 +81,7 @@ Under **Settings > People**, add a name and password for each person. The login 
 Open **Settings > Phone notifications** on each phone and tap **Turn on for this phone**. The daily reminder then pops up there at the reminder time, next to (or instead of) the email.
 
 - Android: works in Chrome straight away.
-- iPhone (iOS 16.4 or newer): add the app to the home screen first (Share, then **Add to Home Screen**), open it from the home screen icon, then turn notifications on.
+- iPhone (iOS 16.4 or newer): add the app to the home screen first, open it from the home screen icon, then turn notifications on. **Settings > This device** shows the home-screen steps for the browser you're using.
 
 The server makes its own notification keys the first time and keeps them in the data volume (`vapid.json`).
 
@@ -103,7 +103,7 @@ Every night at `BACKUP_TIME` the app saves everything (items, shopping list, rem
 mkdir -p /srv/pantry-backups && chown 1000:1000 /srv/pantry-backups
 ```
 
-**Off the machine:** switch on **Settings > Backups > Email a copy every Sunday** to get the backup file in your inbox each week (it uses the reminder email settings).
+**Weekly email:** switch on **Settings > Backups > Email a weekly summary and backup every Sunday**. The email shows what to use first, this month's used vs. thrown away, what's on the shelf and the shopping list. It has two attachments: a PDF report to read or print, and the backup file, so a copy is kept off the server. It uses the reminder email settings. **See this week's report (PDF)** shows the same report any time.
 
 **Restore:** **Settings > Backups > Restore a backup** puts back one of the saved backups, or a file you upload (for example from that email). What's there before the restore is saved first as `pantry-before-restore-….json`, so a restore can be undone the same way.
 
