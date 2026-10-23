@@ -26,7 +26,11 @@ const COOKIE = "pantry_session";
 const YEAR = 365 * 24 * 3600;
 const UA = "PantryShelf/2.0 (self-hosted pantry app)";
 const MAIN = "main"; // the household that was there before households existed
-const HOUSEHOLD = { id: "h", name: "Household", hid: MAIN, admin: true }; // the household password's login
+// Who may manage the site (households, invite codes, the email account). With ADMINS set
+// (login names, comma separated) only those people; otherwise the first household's people.
+const ADMINS = (env.ADMINS || "").split(",").map((n) => n.trim().toLowerCase()).filter(Boolean);
+const isAdmin = (name, flag) => (ADMINS.length ? ADMINS.includes(String(name).toLowerCase()) : !!flag);
+const HOUSEHOLD = { id: "h", name: "Household", hid: MAIN, admin: !ADMINS.length }; // the household password's login
 const MAX_HOUSEHOLDS = Number(env.MAX_HOUSEHOLDS || 10);
 const MAX_MEMBERS = Number(env.MAX_MEMBERS || 5);
 const OPEN_SIGNUP = env.OPEN_SIGNUP === "true"; // without it, a new household needs an invite code
@@ -120,7 +124,7 @@ function tokenUser(t) {
   if (ver === "v1" || id === "h") return PASSWORD ? HOUSEHOLD : null; // version 1 logins count as the household
   const u = accountsDb.data[id];
   if (!u || String(u.gen || 0) !== gen) return null; // removed, or password changed since
-  return { id, name: u.name, hid: u.household || MAIN, admin: !!u.admin };
+  return { id, name: u.name, hid: u.household || MAIN, admin: isAdmin(u.name, u.admin) };
 }
 function cookies(req) {
   const out = {};

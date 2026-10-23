@@ -159,7 +159,7 @@
     renderMeChip();
     if (me?.household) showHousehold(me.household);
     $("#adminCard").hidden = !me?.admin;
-    $("#hhDeleteBox").hidden = !!me?.admin; // the first household (the admins') stays
+    $("#hhDeleteBox").hidden = !me || me.hid === "main"; // the first household stays
     $("#logout").hidden = !session.passwordProtected;
     $("#myPass").hidden = !me || me.id === "h";
     $("#meNote").textContent = session.offline ? "Offline right now." : me && session.passwordProtected ? `Logged in as ${me.name}${me.id === "h" ? " (the shared household password)" : ""}.` : "";
@@ -494,8 +494,9 @@
           $("#r-port").value = String(r.smtpPort);
         }
       }
-      $("#mailNote").hidden = r.canEditMail;
-      $("#mailNote").textContent = r.mailReady ? "The site sends the emails for you." : "Email isn't set up on this site yet. Ask the person who runs it.";
+      // Only an admin sees which account sends; others only hear about it when email isn't available
+      $("#mailNote").hidden = r.canEditMail || r.mailReady;
+      $("#mailNote").textContent = "Email isn't available on this site yet. Ask the person who runs it.";
       renderBackups(s.backups);
       renderPush(s.push);
       loadPeople();
