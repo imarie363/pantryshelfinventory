@@ -868,6 +868,14 @@ async function api(req, res, p, me) {
     try { return send(res, 200, await require("./dateocr").readDates(img)); }
     catch (e) { console.error("Reading a date failed:", e.message); return send(res, 500, { error: "Couldn't read the photo. Type the date instead." }); }
   }
+  // A photo of the front of a pack: the biggest lines of text, which is usually the product name
+  if (p === "/api/ocr/name" && req.method === "POST") {
+    let img;
+    try { img = await readRaw(req, 8 * 1024 * 1024); } catch { return send(res, 413, { error: "That photo is too large." }); }
+    if (img.length < 100) return send(res, 400, { error: "No photo received." });
+    try { return send(res, 200, await require("./dateocr").readName(img)); }
+    catch (e) { console.error("Reading a name failed:", e.message); return send(res, 500, { error: "Couldn't read the photo. Type the name instead." }); }
+  }
 
   if (p === "/api/recipes" && req.method === "GET") return send(res, 200, await recipeIdeas(h));
 

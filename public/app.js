@@ -243,6 +243,7 @@
     $("#n-ok").textContent = groups.month.length + groups.later.length;
     if (shelfKind === "supply") renderSupplies(supplies);
     else renderFood(all);
+    renderSearch(everything);
     const names = new Set([...everything.map((i) => i.name), ...[...shopping.values()].map((e) => e.name)].filter(Boolean));
     $("#nameHints").replaceChildren(...[...names].map((n) => el("option", { value: n })));
     $("#syncNote").textContent = lastSync ? `Updated ${new Date(lastSync).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "";
@@ -250,6 +251,55 @@
     renderShopping();
     if (tab === "recipes") loadRecipes(false);
   }
+  // ---------- search: "do we have…?" ----------
+  // Looks through food and household supplies by name (accents and case don't matter) and shows,
+  // per name, how much there is in total, where, and the earliest best-before date.
+  const fold = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  function totalText(list) {
+    const byUnit = new Map();
+    for (const it of list) { const u = it.unit || ""; byUnit.set(u, (byUnit.get(u) || 0) + (Number.isFinite(+it.qty) ? +it.qty : 1)); }
+    const parts = [...byUnit].filter(([, n]) => n > 0).map(([u, n]) => `${Math.round(n * 1000) / 1000} ${u}`.trim());
+    return parts.length ? parts.join(" + ") : "None left";
+  }
+  function renderSearch(everything) {
+    const raw = $("#search").value.trim(), q = fold(raw), host = $("#searchResults");
+    const searching = !!q;
+    for (const id of ["#kinds", "#bands"]) $(id).hidden = searching;
+    if (searching) { $("#places").hidden = true; $("#placeEmpty").hidden = true; $("#empty").hidden = true; }
+    host.hidden = !searching;
+    if (!searching) return;
+    const words = q.split(/\s+/);
+    const hits = everything.filter((it) => { const n = fold(it.name); return words.every((w) => n.includes(w)); });
+    const groups = new Map();
+    for (const it of hits) { const k = fold(it.name).trim(); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(it); }
+    const rows = [...groups.values()].map((list) => {
+      list.sort((a, b) => (a.expiry || "9999").localeCompare(b.expiry || "9999"));
+      const first = list[0], places = [...new Set(list.map((i) => i.place || (isSupply(i) ? "Storage" : "Pantry")))];
+      const dated = list.filter((i) => i.expiry), total = totalText(list), none = total === "None left";
+      const sub = [places.join(", "), dated.length ? `first ${nice(parseDate(dated[0].expiry), true)}` : "", list.length > 1 ? `${list.length} labels` : ""].filter(Boolean).join(" · ");
+      const cls = none ? "u-exp" : isLow(first) ? "u-soon" : dated.length ? urgency(daysLeft(dated[0].expiry)).cls.replace("s-", "u-") : "u-ok";
+      return el("li", {}, el("button", { class: "item " + cls, onclick: () => openItem(first.id) },
+        el("span", { class: "name" }, first.name),
+        el("span", { class: "meta" }, sub),
+        el("span", { class: "pill " + (none ? "s-exp" : "s-ok") }, el("strong", {}, none ? "None" : "Yes"), el("em", {}, total))));
+    });
+    if (rows.length) {
+      host.replaceChildren(el("p", { class: "muted" }, `Yes, ${rows.length === 1 ? "this is" : `${rows.length} things are`} on the shelf:`), el("ul", { class: "list" }, ...rows));
+      return;
+    }
+    const onList = [...shopping.values()].some((e) => !e.done && fold(e.name) === q);
+    host.replaceChildren(el("div", { class: "card search-none" },
+      el("p", {}, el("strong", {}, `No “${raw}” in the pantry.`)),
+      el("div", { class: "tools" },
+        onList ? el("span", { class: "muted" }, "It's already on the shopping list.")
+          : el("button", { class: "btn primary", type: "button", onclick: async () => {
+            try { await putEntry(newId(), { name: raw, done: false, addedAt: Date.now() }); toast(`${raw} added to the shopping list`); render(); } catch (err) { if (err.status !== 401) toast(err.message); }
+          } }, "Add to the shopping list"),
+        el("button", { class: "btn", type: "button", onclick: () => { openEdit(); $("#f-name").value = raw; } }, "Add it to the shelf"))));
+  }
+  $("#search").addEventListener("input", () => render());
+  $("#search").addEventListener("keydown", (e) => { if (e.key === "Escape") { e.target.value = ""; render(); } });
+
   function renderFood(all) {
     renderPlaces(all);
     const list = place === "All" ? all : all.filter((it) => (it.place || "Pantry") === place);
@@ -349,7 +399,7 @@
     $("#f-place").value = it?.place || (editKind === "supply" ? "Storage" : "Pantry");
     $("#f-exp").value = batches ? batches[0].expiry : it?.expiry || "";
     $("#moreDates").replaceChildren(...(batches || []).slice(1).map((b) => dateRow(b.qty, b.expiry)));
-    lastDate = null; datesChanged();
+    lastDate = null; datesChanged(); $("#nameAlt").hidden = true;
     $("#f-low").value = it && Number.isFinite(+it.lowAt) ? +it.lowAt : 1;
     setBarcodeNote(editBarcode ? `Barcode ${editBarcode}` : "");
     if (!$("#editDlg").open) $("#editDlg").showModal();
@@ -391,7 +441,30 @@
   // The camera shows a band in the middle; a few times a second that part of the picture goes to the
   // server, which reads the text. A date printed after THT/best before/exp is filled in at once; any
   // other date once it has been read twice in a row. Typing or picking the date works as before.
-  let dateTarget = null, dateStream = null, dateScanning = false, lastSeen = null;
+  // The same scanner reads product names: the biggest print in the frame, usually the name. It fills
+  // in once the same name is read twice in a row; the other lines it saw can be tapped instead.
+  let dateTarget = null, dateStream = null, dateScanning = false, lastSeen = null, scanKind = "date";
+  async function readName(blob) {
+    const res = await fetch("/api/ocr/name", { method: "POST", headers: { "Content-Type": "image/jpeg" }, body: blob, credentials: "same-origin" });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) { showLogin(); throw new Error("Log in again."); }
+    if (!res.ok) throw new Error(data.error || "Couldn't read the name.");
+    return data.names || [];
+  }
+  function useOcrName(text, others = []) {
+    $("#f-name").value = text;
+    navigator.vibrate?.(60);
+    $("#dateDlg").close();
+    // the other lines it saw, in case the name was a different one
+    const alt = others.filter((o) => o !== text).slice(0, 4);
+    $("#nameAlt").replaceChildren(...alt.map((o) => el("button", { type: "button", onclick: () => { $("#f-name").value = o; $("#nameAlt").hidden = true; } }, o)));
+    $("#nameAlt").hidden = !alt.length;
+    toast(alt.length ? "Name filled in. Not right? Tap one of the other lines." : "Name filled in. Check it.");
+  }
+  function offerNames(names) {
+    $("#ocrPick").replaceChildren(...names.map((n) => el("button", { type: "button", onclick: () => useOcrName(n.text, names.map((x) => x.text)) }, n.text)));
+    $("#ocrPick").hidden = !names.length;
+  }
   const grey = (ctx) => { ctx.filter = "grayscale(1) contrast(1.4)"; };
   async function readDate(blob) {
     const res = await fetch("/api/ocr/date", { method: "POST", headers: { "Content-Type": "image/jpeg" }, body: blob, credentials: "same-origin" });
@@ -415,7 +488,10 @@
     const vw = v.videoWidth, vh = v.videoHeight, box = $("#dateVf").getBoundingClientRect();
     // the video is shown with object-fit: cover, so work out which part of it is on screen
     const scale = Math.max(box.width / vw, box.height / vh), shownW = box.width / scale, shownH = box.height / scale;
-    const sx = (vw - shownW) / 2 + shownW * 0.08, sy = (vh - shownH) / 2 + shownH * 0.34, sw = shownW * 0.84, sh = shownH * 0.32;
+    // the date band inside the frame (as in the CSS); for names all of what is on screen, so a name
+    // that sticks out of the frame isn't cut in half
+    const [fx, fy] = scanKind === "name" ? [0, 0] : [0.08, 0.34];
+    const sx = (vw - shownW) / 2 + shownW * fx, sy = (vh - shownH) / 2 + shownH * fy, sw = shownW * (1 - 2 * fx), sh = shownH * (1 - 2 * fy);
     const out = Math.min(2, 1400 / sw), cv = document.createElement("canvas");
     cv.width = Math.round(sw * out); cv.height = Math.round(sh * out);
     const ctx = cv.getContext("2d"); grey(ctx); ctx.drawImage(v, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
@@ -431,11 +507,23 @@
     if (!$("#dateDlg").open) { stopDateCamera(); return; }
     const v = $("#dateVideo"); v.srcObject = dateStream; await v.play().catch(() => {});
     $("#dateVf").hidden = false;
-    $("#dateHint").textContent = "Hold the best-before date inside the frame, close and sharp. It fills in by itself.";
+    $("#dateHint").textContent = scanKind === "name" ? "Hold the front of the pack in the frame, with the name big and sharp. Tap the name when it shows up, or wait a moment."
+      : "Hold the best-before date inside the frame, close and sharp. It fills in by itself.";
     dateScanning = true;
     while (dateScanning) {
       const t0 = Date.now();
-      if (v.readyState >= 2) {
+      if (v.readyState >= 2 && scanKind === "name") {
+        try {
+          const names = await readName(await frameBand(v));
+          if (!dateScanning) break;
+          offerNames(names);
+          const top = names[0];
+          if (top && top.confidence >= 70 && lastSeen === top.text) {
+            $("#dateVf").classList.add("found"); dateScanning = false; setTimeout(() => useOcrName(top.text, names.map((x) => x.text)), 250); break;
+          }
+          lastSeen = top?.text || null;
+        } catch (err) { if (!dateScanning) break; $("#dateHint").textContent = err.message; }
+      } else if (v.readyState >= 2) {
         try {
           const dates = await readDate(await frameBand(v));
           if (!dateScanning) break;
@@ -452,11 +540,15 @@
   }
   function stopDateCamera() { dateScanning = false; if (dateStream) { dateStream.getTracks().forEach((t) => t.stop()); dateStream = null; } $("#dateVf").hidden = true; }
   $("#dateDlg").addEventListener("close", stopDateCamera);
-  $("#dateScanBtn").addEventListener("click", () => {
-    dateTarget = lastDate?.isConnected ? lastDate : $("#f-exp");
+  function openTextScan(kind) {
+    scanKind = kind;
+    $("#date-h").textContent = kind === "name" ? "Scan the product name" : "Scan the best-before date";
+    $("#dateVf").classList.toggle("name-vf", kind === "name");
     $("#dateDlg").showModal();
     startDateCamera();
-  });
+  }
+  $("#dateScanBtn").addEventListener("click", () => { dateTarget = lastDate?.isConnected ? lastDate : $("#f-exp"); openTextScan("date"); });
+  $("#nameScanBtn").addEventListener("click", () => openTextScan("name"));
   // A photo instead of the live camera
   function photoForOcr(file) {
     return new Promise((resolve, reject) => {
@@ -473,8 +565,14 @@
   }
   $("#expPhoto").addEventListener("change", async (e) => {
     const file = e.target.files?.[0]; e.target.value = ""; if (!file) return;
-    stopDateCamera(); $("#ocrPick").hidden = true; $("#dateHint").textContent = "Reading the date…";
+    stopDateCamera(); $("#ocrPick").hidden = true; $("#dateHint").textContent = scanKind === "name" ? "Reading the name…" : "Reading the date…";
     try {
+      if (scanKind === "name") {
+        const names = await readName(await photoForOcr(file));
+        if (!names.length) { $("#dateHint").textContent = "No name found. Try closer, with the name filling the photo, or type it."; return; }
+        offerNames(names); $("#dateHint").textContent = "Tap the product name.";
+        return;
+      }
       const dates = await readDate(await photoForOcr(file));
       if (!dates.length) { $("#dateHint").textContent = "No date found. Try closer, with the date filling the photo, or type it."; return; }
       if (dates.length === 1) return useOcrDate(dates[0].expiry);

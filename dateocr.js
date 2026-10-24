@@ -1,5 +1,6 @@
-// Reads best-before dates from a photo: Tesseract (in Node, no system packages) finds the text,
-// then findDates() picks out the dates. Dutch and English month names and labels are understood.
+// Reads best-before dates and product names from a photo: Tesseract (in Node, no system packages)
+// finds the text, then findDates() picks out the dates (Dutch and English month names and labels)
+// and nameLines() the biggest lines of words, which on a pack is usually the product name.
 const path = require("path");
 
 const MONTHS = {
@@ -86,17 +87,42 @@ async function getWorker() {
   }
   return worker;
 }
-function readDates(image) {
+// The lines of words on the pack, biggest print first. Lines that are mostly digits, a date,
+// a weight or too unsure are left out. ALL CAPS becomes Title Case.
+function nameLines(data) {
+  const out = [], seen = new Set();
+  for (const b of data.blocks || []) for (const p of b.paragraphs || []) for (const l of p.lines || []) {
+    let text = l.text.replace(/[^\p{L}\p{N}&'’\-.,% ]+/gu, " ").replace(/\s+/g, " ").trim().replace(/^[\-.,]+|[\-.,]+$/g, "").trim();
+    const letters = (text.match(/\p{L}/gu) || []).length;
+    if (letters < 3 || letters / text.replace(/\s/g, "").length < 0.6 || l.confidence < 55) continue;
+    if (findDates(text).length || /^\d+([.,]\d+)?\s?(g|kg|ml|cl|l|ltr|liter|gram|stuks|pcs)\b/i.test(text)) continue;
+    if (text === text.toUpperCase()) text = text.toLowerCase().replace(/(^|[\s\-])(\p{L})/gu, (m, a, c) => a + c.toUpperCase());
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ text: text.slice(0, 80), size: l.bbox.y1 - l.bbox.y0, confidence: Math.round(l.confidence) });
+  }
+  return out.sort((a, b) => b.size - a.size).slice(0, 5);
+}
+
+function recognize(image) {
   const job = queue.then(async () => {
     clearTimeout(idle);
     const w = await getWorker();
-    const { data } = await w.recognize(image);
+    const { data } = await w.recognize(image, {}, { text: true, blocks: true });
     idle = setTimeout(() => { const old = worker; worker = null; old?.then((x) => x.terminate()).catch(() => {}); }, 10 * 60e3);
     idle.unref?.();
-    return { dates: findDates(data.text), text: data.text.replace(/\s+/g, " ").trim().slice(0, 200) };
+    return data;
   });
   queue = job.catch(() => {});
   return job;
 }
+async function readDates(image) {
+  const data = await recognize(image);
+  return { dates: findDates(data.text), text: data.text.replace(/\s+/g, " ").trim().slice(0, 200) };
+}
+async function readName(image) {
+  return { names: nameLines(await recognize(image)) };
+}
 
-module.exports = { findDates, readDates };
+module.exports = { findDates, readDates, readName };
