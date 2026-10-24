@@ -1,15 +1,15 @@
 # Settings for the standby scripts. Copy to scripts/ha/ha.conf on the standby VM and fill in.
 
-# How the standby logs in to homelab-main (needs an SSH key, see docs/high-availability.md)
-PRIMARY=root@192.168.178.92
+# How the standby logs in to main-vm (needs an SSH key, see docs/high-availability.md)
+PRIMARY=root@192.168.1.10   # change to your main VM's address
 
-# The app folder on homelab-main
+# The app folder on main-vm
 PRIMARY_DIR=/pantry/pantry-shelf
 
 # Where the nightly backups are kept, on both machines
 BACKUP_DIR=/srv/pantry-backups
 
-# Seconds between copies of the data from homelab-main
+# Seconds between copies of the data from main-vm
 SYNC_EVERY=300
 
 # Days to keep the copied nightly backups on the standby

@@ -37,14 +37,14 @@ last_sync_text() {
   if [ "$t" = 0 ]; then echo "never"; else echo "$(( ($(date +%s) - t) / 60 )) min ago ($(date -d "@$t" '+%F %T'))"; fi
 }
 
-# Copy the data, settings and nightly backups from homelab-main. Only replaces the
+# Copy the data, settings and nightly backups from main-vm. Only replaces the
 # local copy once the whole download worked.
 pull_data() {
   local dest tmp
   dest="$(volume_path)"; tmp="$STATE_DIR/incoming"
   rm -rf "$tmp"; mkdir -p "$tmp"
   on_primary "cd \"\$(docker volume inspect -f '{{.Mountpoint}}' '$VOLUME')\" && tar -cz ." | tar -xzf - -C "$tmp"
-  if [ -z "$(ls -A "$tmp")" ]; then log "The copy from homelab-main was empty, so the old copy was kept."; return 1; fi
+  if [ -z "$(ls -A "$tmp")" ]; then log "The copy from main-vm was empty, so the old copy was kept."; return 1; fi
   on_primary "cat '$PRIMARY_DIR/.env'" > "$APP_DIR/.env.new"
   find "$dest" -mindepth 1 -delete
   cp -a "$tmp/." "$dest/"
@@ -56,7 +56,7 @@ pull_data() {
   date +%s > "$STATE_DIR/last-sync"
 }
 
-# Stop the app and tunnel on homelab-main and mark it as standby, so its auto-update
+# Stop the app and tunnel on main-vm and mark it as standby, so its auto-update
 # doesn't start them again and Cloudflare only sends visitors here.
 stop_primary() {
   on_primary "cd '$PRIMARY_DIR' && echo standby > .role && docker compose stop"

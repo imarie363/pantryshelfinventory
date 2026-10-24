@@ -1,12 +1,12 @@
 #!/bin/bash
-# Run on the standby VM to hand Pantry Shelf back to homelab-main after a failover.
-# Copies everything that changed meanwhile back to homelab-main first.
+# Run on the standby VM to hand Pantry Shelf back to main-vm after a failover.
+# Copies everything that changed meanwhile back to main-vm first.
 . "$(dirname "$0")/common.sh"
 exec 9>"$STATE_DIR/lock"
 flock 9
 
-if [ "$(role)" = standby ]; then echo "homelab-main is already the one serving."; exit 0; fi
-if ! on_primary true 2>/dev/null; then echo "Can't reach homelab-main ($PRIMARY) yet." >&2; exit 1; fi
+if [ "$(role)" = standby ]; then echo "main-vm is already the one serving."; exit 0; fi
+if ! on_primary true 2>/dev/null; then echo "Can't reach main-vm ($PRIMARY) yet." >&2; exit 1; fi
 
 on_primary "cd '$PRIMARY_DIR' && echo standby > .role && docker compose stop >/dev/null 2>&1; docker compose up --no-start >/dev/null 2>&1; true"
 compose stop
@@ -25,4 +25,4 @@ trap - ERR
 
 set_role standby
 date +%s > "$STATE_DIR/last-sync"
-log "homelab-main serves Pantry Shelf again. This machine is back on standby."
+log "main-vm serves Pantry Shelf again. This machine is back on standby."

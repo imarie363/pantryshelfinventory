@@ -85,7 +85,7 @@ Under **Settings > People**, add a name and password for each person. The login 
 
 One site can hold several households, each with its own shelf, shopping list, history, cover photo, reminders and people. Nobody sees another household's data.
 
-- **Your household is the first one.** After the update, everything that was there stays as it was. The site's admins see **Settings > Site admin** and the email account that sends. Set `ADMINS` in `.env` to the login names that may do that (for example `ADMINS=Ima`); without it, everyone in the first household is an admin, and so is the household password login.
+- **Your household is the first one.** After the update, everything that was there stays as it was. The site's admins see **Settings > Site admin** and the email account that sends. Set `ADMINS` in `.env` to the login names that may do that (for example `ADMINS=Alex`); without it, everyone in the first household is an admin, and so is the household password login.
 - **Inviting a friend:** in **Site admin**, tap **Make an invite code** and send it (the **Share** button sends a link that fills the code in). Each code works once, for 14 days. Your friend opens the site, taps **Create a household**, and picks a household name, their name and a password. They then add the people they live with under **Settings > People**.
 - **Limits:** up to 10 households of up to 5 people each. Change them with `MAX_HOUSEHOLDS` and `MAX_MEMBERS` in `.env`. With `OPEN_SIGNUP=true`, anyone can create a household without a code until the site is full.
 - **Names are unique on the whole site**, because the login asks for a name. If a name is taken, add a letter, like "Ana S".
