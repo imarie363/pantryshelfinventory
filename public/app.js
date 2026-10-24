@@ -19,6 +19,7 @@
   let passwordProtected = true;
   const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
   let place = store.get("pantry.place") || "All";
+  let shelfKind = store.get("pantry.kind") === "supply" ? "supply" : "food"; // which list the shelf shows
 
   // ---------- api ----------
   async function api(method, url, body) {
@@ -106,6 +107,11 @@
     const n = daysLeft(exp), u = urgency(n), d = parseDate(exp);
     return el("span", { class: "pill " + u.cls }, el("strong", {}, leftText(n)), el("em", {}, nice(d, d.getFullYear() !== new Date().getFullYear())));
   }
+  const isSupply = (it) => it?.kind === "supply";
+  const isLow = (it) => isSupply(it) && +it.qty <= (Number.isFinite(+it.lowAt) ? +it.lowAt : 1);
+  // Household supplies: "Low"/"None left" or "In stock", with the amount
+  const supplyPill = (it) => el("span", { class: "pill " + (isLow(it) ? "s-soon" : "s-ok") },
+    el("strong", {}, isLow(it) ? (+it.qty > 0 ? "Low" : "None left") : "In stock"), el("em", {}, qtyText(it)));
   const qtyText = (it) => `${Number.isFinite(+it.qty) ? +it.qty : 1} ${it.unit || ""}`.trim();
   function setStatus(msg) { const s = $("#status"); s.textContent = msg || ""; s.hidden = !msg; }
 
@@ -198,17 +204,57 @@
     ["month", "Use this month", "8 to 30 days"],
     ["later", "Later", "More than a month"],
   ];
+  function renderKinds(food, supplies) {
+    const chip = (kind, label, iconName, n) => el("button", { type: "button", "aria-pressed": String(shelfKind === kind),
+      onclick: () => { shelfKind = kind; store.set("pantry.kind", kind); place = "All"; store.set("pantry.place", "All"); render(); } },
+      icon(iconName), label, el("span", { class: "n" }, String(n)));
+    $("#kinds").replaceChildren(chip("food", "Food", "jar", food.length), chip("supply", "Household", "home", supplies.length));
+  }
+  function renderSupplies(supplies) {
+    renderPlaces(supplies);
+    const list = place === "All" ? supplies : supplies.filter((it) => (it.place || "Storage") === place);
+    const low = list.filter(isLow), ok = list.filter((it) => !isLow(it));
+    const host = $("#bands"); host.replaceChildren();
+    for (const [key, title, sub, g] of [["low", "Running low", "on the shopping list", low], ["stock", "In stock", "enough for now", ok]]) {
+      if (!g.length) continue;
+      host.append(el("section", { class: "band", id: "band-" + key },
+        el("div", { class: "band-head" }, el("h2", {}, title), el("small", {}, `${g.length} · ${sub}`)),
+        el("ul", { class: "list" }, ...g.map((it) => el("li", {}, el("button", { class: "item " + (isLow(it) ? "u-soon" : "u-ok"), onclick: () => openItem(it.id) },
+          el("span", { class: "name" }, it.name || "Unnamed item"),
+          el("span", { class: "meta" }, icon(PLACE_ICON[it.place] || "home"), `${it.place || "Storage"} · ${qtyText(it)}`),
+          supplyPill(it)))))));
+    }
+    $("#empty").hidden = true;
+    $("#placeEmpty").hidden = !(loaded && !list.length);
+    $("#placeEmpty").textContent = supplies.length ? `Nothing in the ${place.toLowerCase()} right now.`
+      : "No household supplies yet. Tap Add item and pick Household supply for things like toilet paper or detergent.";
+  }
   function render() {
     $("#today").textContent = `Today is ${todayStart().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}. Use what expires first.`;
-    const all = [...items.entries()].map(([id, it]) => ({ id, ...it })).filter((it) => it.expiry)
+    const everything = [...items.entries()].map(([id, it]) => ({ id, ...it }));
+    const supplies = everything.filter(isSupply).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    const all = everything.filter((it) => it.expiry && !isSupply(it))
       .sort((a, b) => a.expiry.localeCompare(b.expiry) || String(a.name).localeCompare(String(b.name)));
+    renderKinds(all, supplies);
+    const groups = { expired: [], soon: [], month: [], later: [] };
+    for (const it of all) groups[urgency(daysLeft(it.expiry)).band].push(it);
+    $("#n-exp").textContent = groups.expired.length;
+    $("#n-soon").textContent = groups.soon.length;
+    $("#n-ok").textContent = groups.month.length + groups.later.length;
+    if (shelfKind === "supply") renderSupplies(supplies);
+    else renderFood(all);
+    const names = new Set([...everything.map((i) => i.name), ...[...shopping.values()].map((e) => e.name)].filter(Boolean));
+    $("#nameHints").replaceChildren(...[...names].map((n) => el("option", { value: n })));
+    $("#syncNote").textContent = lastSync ? `Updated ${new Date(lastSync).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "";
+    if (currentId && $("#itemDlg").open) { if (items.has(currentId)) fillItem(currentId); else $("#itemDlg").close(); }
+    renderShopping();
+    if (tab === "recipes") loadRecipes(false);
+  }
+  function renderFood(all) {
     renderPlaces(all);
     const list = place === "All" ? all : all.filter((it) => (it.place || "Pantry") === place);
     const groups = { expired: [], soon: [], month: [], later: [] };
     for (const it of list) groups[urgency(daysLeft(it.expiry)).band].push(it);
-    $("#n-exp").textContent = groups.expired.length;
-    $("#n-soon").textContent = groups.soon.length;
-    $("#n-ok").textContent = groups.month.length + groups.later.length;
     const host = $("#bands"); host.replaceChildren();
     for (const [key, title, sub] of BANDS) {
       const g = groups[key]; if (!g.length) continue;
@@ -225,17 +271,12 @@
     $("#empty").hidden = !loaded || all.length > 0;
     $("#placeEmpty").hidden = !(all.length && !list.length);
     $("#placeEmpty").textContent = `Nothing in the ${place.toLowerCase()} right now.`;
-    const names = new Set([...all.map((i) => i.name), ...[...shopping.values()].map((e) => e.name)].filter(Boolean));
-    $("#nameHints").replaceChildren(...[...names].map((n) => el("option", { value: n })));
-    $("#syncNote").textContent = lastSync ? `Updated ${new Date(lastSync).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "";
-    if (currentId && $("#itemDlg").open) { if (items.has(currentId)) fillItem(currentId); else $("#itemDlg").close(); }
-    renderShopping();
-    if (tab === "recipes") loadRecipes(false);
   }
   // Filter by where things are kept: All · Pantry 7 · Fridge 3 …
   function renderPlaces(all) {
     const counts = new Map();
-    for (const it of all) counts.set(it.place || "Pantry", (counts.get(it.place || "Pantry") || 0) + 1);
+    const fallback = shelfKind === "supply" ? "Storage" : "Pantry";
+    for (const it of all) counts.set(it.place || fallback, (counts.get(it.place || fallback) || 0) + 1);
     if (place !== "All" && !counts.has(place)) place = "All";
     const host = $("#places");
     host.hidden = counts.size < 2 && place === "All";
@@ -245,6 +286,7 @@
       ...[...counts.entries()].sort((a, b) => b[1] - a[1]).map(([name, n]) => chip(name, n, PLACE_ICON[name] || "jar")));
   }
   document.querySelectorAll("[data-jump]").forEach((b) => b.addEventListener("click", () => {
+    if (shelfKind === "supply") { shelfKind = "food"; store.set("pantry.kind", "food"); render(); }
     const k = b.dataset.jump; const t = $("#band-" + k) || (k === "later" ? $("#band-month") : null);
     if (t) t.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   }));
@@ -256,6 +298,23 @@
   });
 
   // ---------- add / edit ----------
+  // Food needs a best-before date; a household supply has a "running low" level instead
+  let editKind = "food";
+  function setKind(kind) {
+    editKind = kind === "supply" ? "supply" : "food";
+    const supply = editKind === "supply";
+    $("#f-kind").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === editKind)));
+    $("#f-exp").required = !supply;
+    $("#expLabel").textContent = supply ? "Best before (optional)" : "Best before / use by";
+    $("#quick").hidden = supply;
+    $("#lowBox").hidden = !supply;
+    $("#f-name").placeholder = supply ? "Toilet paper, detergent, dish soap…" : "Rice, tomato sauce, oats…";
+  }
+  $("#f-kind").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-kind]"); if (!b) return;
+    setKind(b.dataset.kind);
+    if (!editingId) $("#f-place").value = editKind === "supply" ? "Storage" : "Pantry";
+  });
   function openEdit(id, presetCode, presetBarcode) {
     editingId = id || null;
     pendingCode = presetCode || null;
@@ -266,8 +325,10 @@
     $("#f-name").value = it?.name || "";
     $("#f-qty").value = it ? it.qty : 1;
     $("#f-unit").value = it?.unit || "pcs";
-    $("#f-place").value = it?.place || "Pantry";
+    setKind(it ? it.kind : shelfKind);
+    $("#f-place").value = it?.place || (editKind === "supply" ? "Storage" : "Pantry");
     $("#f-exp").value = it?.expiry || "";
+    $("#f-low").value = it && Number.isFinite(+it.lowAt) ? +it.lowAt : 1;
     setBarcodeNote(editBarcode ? `Barcode ${editBarcode}` : "");
     if (!$("#editDlg").open) $("#editDlg").showModal();
     if (presetBarcode) applyBarcode(presetBarcode);
@@ -283,6 +344,7 @@
       if (product) {
         $("#f-name").value = product.name;
         if (product.unit) $("#f-unit").value = product.unit;
+        if (product.kind === "supply") setKind("supply");
         if (product.place) $("#f-place").value = product.place;
         setBarcodeNote(`Barcode ${code}: ${product.source === "pantry" ? "filled in from your earlier items" : "found on Open Food Facts"}${product.quantity ? ` · ${product.quantity}` : ""}.`);
         $("#f-exp").focus();
@@ -318,11 +380,13 @@
       place: $("#f-place").value, expiry: $("#f-exp").value, addedAt: prev?.addedAt || Date.now(),
       barcode: editBarcode || undefined,
     };
-    if (!data.name || !data.expiry) return;
+    if (editKind === "supply") { const low = parseFloat($("#f-low").value); data.kind = "supply"; data.lowAt = Number.isFinite(low) && low >= 0 ? low : 1; }
+    if (!data.name || (editKind === "food" && !data.expiry)) return;
     $("#saveBtn").disabled = true;
     try {
       await saveItem(id, data);
       $("#editDlg").close();
+      if (isSupply(data) !== (shelfKind === "supply")) { shelfKind = isSupply(data) ? "supply" : "food"; store.set("pantry.kind", shelfKind); render(); }
       toast(prev ? "Saved" : "Added. Download the label and stick it on.");
       openItem(id);
     } catch (err) {
@@ -336,10 +400,12 @@
   function fillItem(id) {
     const it = items.get(id); if (!it) return;
     $("#item-h").textContent = it.name;
-    $("#itemPill").replaceChildren(pill(it.expiry));
-    const d = parseDate(it.expiry);
+    $("#itemPill").replaceChildren(isSupply(it) ? supplyPill(it) : pill(it.expiry));
     const f = $("#itemFacts"); f.replaceChildren();
-    const rows = [["Quantity", qtyText(it)], ["Where", it.place || "Pantry"], ["Best before", nice(d, true)], ["Label code", id]];
+    const rows = [["Quantity", qtyText(it)], ["Where", it.place || (isSupply(it) ? "Storage" : "Pantry")]];
+    if (isSupply(it)) rows.push(["Running low at", `${Number.isFinite(+it.lowAt) ? +it.lowAt : 1} ${it.unit || ""}`.trim()]);
+    if (it.expiry) rows.push(["Best before", nice(parseDate(it.expiry), true)]);
+    rows.push(["Label code", id]);
     if (it.barcode) rows.push(["Barcode", it.barcode]);
     if (it.addedBy && it.addedBy !== "Household") rows.push(["Added by", it.addedBy]);
     for (const [k, v] of rows) f.append(el("dt", {}, k), el("dd", { class: k === "Label code" || k === "Barcode" ? "code" : "" }, v));
@@ -358,7 +424,7 @@
     $("#confirmText").textContent = lastOne ? `That was the last one. Remove ${it?.name || "it"} from the shelf? You can reuse its label for something new.`
       : `Remove ${it?.name || "this item"} from the shelf? You can reuse its label for something new.`;
     document.querySelector('input[name="outcome"][value="used"]').checked = true;
-    $("#outcomeSet").hidden = !(it?.qty > 0);
+    $("#outcomeSet").hidden = !(it?.qty > 0) || isSupply(it);
     $("#toShopping").checked = true;
     $("#confirmBox").hidden = false;
   }
@@ -367,7 +433,9 @@
     try {
       const r = await api("POST", `/api/items/${currentId}/use`, { outcome: "used" });
       items.set(currentId, r.item); render(); fillItem(currentId);
-      if (r.item.qty > 0) toast(`${r.item.qty} ${it.unit} left`); else askFinished(true);
+      if (r.addedToShopping) refresh();
+      if (isSupply(r.item)) toast(`${r.item.qty > 0 ? `${r.item.qty} ${it.unit} left` : "None left"}${r.addedToShopping ? ". Added to the shopping list" : ""}`);
+      else if (r.item.qty > 0) toast(`${r.item.qty} ${it.unit} left`); else askFinished(true);
     } catch (err) { if (err.status !== 401) toast(err.message || "Couldn't save. Try again."); }
   });
   $("#useAll").addEventListener("click", () => askFinished(false));
@@ -686,6 +754,9 @@
   // ---------- site admin: households and invite codes ----------
   const inviteLink = (code) => `${location.origin}/#join=${code}`;
   function renderAdmin(a) {
+    const tz = $("#tzPick");
+    if (tz.options.length !== a.zones.length) tz.replaceChildren(...a.zones.map((z) => el("option", { value: z }, z.replace(/_/g, " "))));
+    tz.value = a.timeZone;
     $("#adminStatus").textContent = `${a.households.length} of ${a.limits.households} households, up to ${a.limits.members} people each.${a.openSignup ? " Anyone can sign up (OPEN_SIGNUP)." : ""}`;
     $("#hhList").replaceChildren(...a.households.map((x) => el("li", {},
       el("span", { class: "stack" }, el("b", {}, x.name + (x.first ? " (yours)" : "")),
@@ -699,6 +770,10 @@
     $("#inviteList").hidden = !a.invites.length;
     $("#inviteNew").disabled = a.households.length >= a.limits.households;
   }
+  $("#tzPick").addEventListener("change", async (e) => {
+    try { const r = await api("PUT", "/api/admin/timezone", { timeZone: e.target.value }); toast(`Time zone set to ${r.timeZone.replace(/_/g, " ")}`); loadSettings(); }
+    catch (err) { if (err.status !== 401) { toast(err.message); loadAdmin(); } }
+  });
   async function loadAdmin() {
     try { renderAdmin(await api("GET", "/api/admin")); } catch (err) { if (err.status !== 401) $("#adminStatus").textContent = "Couldn't load the site overview."; }
   }
@@ -1059,9 +1134,9 @@
     ctx.fillStyle = "#1e2419"; ctx.textBaseline = "top";
     fitFont(ctx, it.name, maxW, 44, 800); ctx.fillText(it.name, tx, 40, maxW);
     ctx.font = `500 22px "Atkinson Hyperlegible", system-ui, sans-serif`; ctx.fillStyle = "#646b5c";
-    ctx.fillText("BEST BEFORE", tx, 120);
+    ctx.fillText(it.expiry ? "BEST BEFORE" : "KEEP IN", tx, 120);
     ctx.font = `800 40px "Bricolage Grotesque", system-ui, sans-serif`; ctx.fillStyle = "#1e2419";
-    ctx.fillText(nice(parseDate(it.expiry), true), tx, 148, maxW);
+    ctx.fillText(it.expiry ? nice(parseDate(it.expiry), true) : it.place || "Storage", tx, 148, maxW);
     ctx.font = `500 22px "IBM Plex Mono", ui-monospace, monospace`; ctx.fillStyle = "#646b5c";
     ctx.fillText(id, tx, 228);
   }
@@ -1146,7 +1221,7 @@
     else openEdit(null, code);
   }
   function openBarcode(code) {
-    const matches = [...items.entries()].filter(([, it]) => it.barcode === code).sort((a, b) => a[1].expiry.localeCompare(b[1].expiry));
+    const matches = [...items.entries()].filter(([, it]) => it.barcode === code).sort((a, b) => (a[1].expiry || "").localeCompare(b[1].expiry || ""));
     if (matches.length) { openItem(matches[0][0]); if (matches.length > 1) toast(`${matches.length} of these on the shelf. Showing the one that expires first.`); }
     else openEdit(null, null, code);
   }

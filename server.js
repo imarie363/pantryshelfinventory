@@ -64,7 +64,17 @@ function jsonFile(file, key) {
 const accountsDb = jsonFile(path.join(DATA_DIR, "users.json"), "users");      // id -> {name, salt, hash, gen, household, admin, createdAt, avatar}
 const householdsDb = jsonFile(path.join(DATA_DIR, "households.json"), "households"); // id -> {name, createdAt}
 const invitesDb = jsonFile(path.join(DATA_DIR, "invites.json"), "invites");   // code -> {createdAt, expires, by}
-const siteDb = jsonFile(path.join(DATA_DIR, "site.json"), "site");            // the email account the site sends with
+const siteDb = jsonFile(path.join(DATA_DIR, "site.json"), "site");            // the email account the site sends with, the time zone
+
+// Reminder, report and backup times follow this time zone. An admin can pick it in the app
+// (saved in site.json); otherwise TZ from .env, and Europe/Amsterdam if neither is set.
+const ZONES = new Set(Intl.supportedValuesOf("timeZone"));
+const validZone = (z) => typeof z === "string" && (ZONES.has(z) || z === "UTC");
+function applyTimeZone() {
+  process.env.TZ = validZone(siteDb.data.tz) ? siteDb.data.tz : validZone(env.TZ) && env.TZ !== "UTC" ? env.TZ : "Europe/Amsterdam";
+}
+applyTimeZone();
+const timeZone = () => process.env.TZ;
 
 // One household's files, loaded the first time it's used
 const loaded = new Map();
@@ -162,6 +172,9 @@ const LIST_ID_RE = /^[A-Za-z0-9_-]{6,40}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const BARCODE_RE = /^\d{8,14}$/;
 const str = (v, max) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+// Food needs a best-before date. Household supplies (toilet paper, detergent…) don't; they have
+// a "running low" level instead, and go on the shopping list when they reach it.
+const isSupply = (it) => it.kind === "supply";
 function cleanItem(body) {
   const qty = Number(body.qty);
   const by = str(body.addedBy, 30);
@@ -172,6 +185,13 @@ function cleanItem(body) {
   if (by) out.addedBy = by;
   const bc = str(body.barcode, 14);
   if (BARCODE_RE.test(bc)) out.barcode = bc;
+  if (body.kind === "supply") {
+    out.kind = "supply";
+    const low = Number(body.lowAt);
+    out.lowAt = Number.isFinite(low) && low >= 0 && low <= 1000 ? low : 1;
+    if (!out.name || (out.expiry && !DATE_RE.test(out.expiry))) return null;
+    return out;
+  }
   if (!out.name || !DATE_RE.test(out.expiry)) return null;
   return out;
 }
@@ -190,7 +210,11 @@ function daysLeft(expiry, now = new Date()) {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   return Math.round((new Date(y, m - 1, d) - today) / 86400000);
 }
-const sortedItems = (h) => Object.entries(h.items.data).map(([id, it]) => ({ id, ...it, days: daysLeft(it.expiry) })).sort((a, b) => a.days - b.days);
+// Everything with a best-before date (food, and supplies that have one), soonest first
+const sortedItems = (h) => Object.entries(h.items.data).filter(([, it]) => it.expiry).map(([id, it]) => ({ id, ...it, days: daysLeft(it.expiry) })).sort((a, b) => a.days - b.days);
+const isLow = (it) => isSupply(it) && +it.qty <= (Number.isFinite(+it.lowAt) ? +it.lowAt : 1);
+const lowSupplies = (h) => Object.entries(h.items.data).map(([id, it]) => ({ id, ...it })).filter(isLow).sort((a, b) => a.name.localeCompare(b.name));
+const supplyCount = (h) => Object.values(h.items.data).filter(isSupply).length;
 
 // ---------- outbound http ----------
 async function getJson(url, ms = 8000) {
@@ -220,7 +244,7 @@ async function lookupBarcode(h, code) {
 }
 function rememberProduct(h, item) {
   if (!item.barcode) return;
-  h.products.data[item.barcode] = { name: item.name, unit: item.unit, place: item.place, updatedAt: Date.now() };
+  h.products.data[item.barcode] = { name: item.name, unit: item.unit, place: item.place, ...(isSupply(item) ? { kind: "supply" } : {}), updatedAt: Date.now() };
   h.products.save();
 }
 
@@ -244,7 +268,7 @@ function ingredientGuesses(name) {
   return [...new Set(out)].slice(0, 4);
 }
 async function recipeIdeas(h) {
-  const pool = sortedItems(h).filter((it) => it.days >= -1).slice(0, 8);
+  const pool = sortedItems(h).filter((it) => !isSupply(it) && it.days >= -1).slice(0, 8);
   const meals = new Map(); // id -> {id, name, thumb, url, uses:Set, score}
   const used = [];
   for (const it of pool) {
@@ -272,7 +296,7 @@ const HISTORY_MAX = 5000;
 const COUNTABLE = new Set(["pcs", "cans", "jars", "packs", "bottles", "boxes", "bags"]);
 function logEvent(h, item, outcome, qty, by) {
   const hist = h.history.data;
-  hist[crypto.randomUUID()] = { name: item.name, qty, unit: item.unit || "", place: item.place || "Pantry", outcome, by: by.name, at: Date.now() };
+  hist[crypto.randomUUID()] = { name: item.name, qty, unit: item.unit || "", place: item.place || "Pantry", outcome, by: by.name, at: Date.now(), ...(isSupply(item) ? { kind: "supply" } : {}) };
   const keys = Object.keys(hist);
   if (keys.length > HISTORY_MAX) {
     keys.sort((a, b) => hist[a].at - hist[b].at);
@@ -290,6 +314,7 @@ function historySummary(h) {
   const byMonth = Object.fromEntries(months.map((m) => [m, { month: m, used: 0, wasted: 0 }]));
   const wasted = new Map(), people = new Map(), thisMonth = months[months.length - 1];
   for (const e of events) {
+    if (isSupply(e)) continue; // used vs. thrown away is about food
     const m = monthKey(e.at);
     if (byMonth[m] && (e.outcome === "used" || e.outcome === "wasted")) byMonth[m][e.outcome] += amount(e);
     if (e.outcome === "wasted" && byMonth[m]) {
@@ -396,15 +421,17 @@ function reminderText(h) {
   const soon = list.filter((i) => i.days >= 0 && i.days <= DAYS);
   const when = (d) => (d === 0 ? "today" : d === 1 ? "tomorrow" : `in ${d} days`);
   const line = (i) => `- ${i.name} (${i.qty} ${i.unit || ""}`.trimEnd() + `, ${i.place || "Pantry"}): ${i.days < 0 ? `expired ${-i.days} day${i.days === -1 ? "" : "s"} ago` : when(i.days)}`;
+  const low = lowSupplies(h);
   const parts = [];
   if (expired.length) parts.push(`Expired:\n${expired.map(line).join("\n")}`);
   if (soon.length) parts.push(`Use within ${DAYS} days:\n${soon.map(line).join("\n")}`);
-  const count = expired.length + soon.length;
-  const bits = [soon.length && `${soon.length} to use soon`, expired.length && `${expired.length} expired`].filter(Boolean);
+  if (low.length) parts.push(`Running low:\n${low.map((i) => `- ${i.name} (${i.qty} ${i.unit || ""}`.trimEnd() + ` left, ${i.place || "Storage"})`).join("\n")}`);
+  const count = expired.length + soon.length + low.length;
+  const bits = [soon.length && `${soon.length} to use soon`, expired.length && `${expired.length} expired`, low.length && `${low.length} running low`].filter(Boolean);
   const title = count ? `Pantry: ${bits.join(", ")}` : "Pantry: nothing expiring soon";
   let body = parts.length ? parts.join("\n\n") : `Nothing expires in the next ${DAYS} days.`;
   if (APP_URL) body += `\n\nOpen the shelf: ${APP_URL}`;
-  const first = [...expired, ...soon].map((i) => i.name);
+  const first = [...expired, ...soon, ...low].map((i) => i.name);
   const short = count ? `${first.slice(0, 4).join(", ")}${first.length > 4 ? ` and ${first.length - 4} more` : ""}` : `Nothing expires in the next ${DAYS} days.`;
   return { title, body, short, count };
 }
@@ -465,11 +492,17 @@ async function sendPush({ title, short }, h, only) {
   if (!ok && targets.length) throw new Error(lastErr ? `The push service refused it (${lastErr.statusCode || lastErr.message}).` : "This phone's notifications were switched off. Turn them on again.");
   return ok;
 }
+// The daily reminder by email: the same layout as the weekly report, with the PDF attached
+async function sendReminderEmail(msg, h) {
+  const { report, summary, day } = weeklyReport(h), opts = { day, appUrl: APP_URL, daily: true };
+  await sendEmail({ title: msg.title, body: report.text(summary, opts), html: report.html(summary, opts),
+    attachments: [{ filename: `pantry-report-${day}.pdf`, content: await report.pdf(summary, opts), contentType: "application/pdf" }] }, h);
+}
 async function sendReminder(h, { force = false } = {}) {
   const msg = reminderText(h);
   if (!force && !msg.count && REMINDER_SKIP_EMPTY) return { sent: [], skipped: "nothing expiring" };
   const sent = [], failed = [], channels = channelsNow(h);
-  for (const [name, fn] of [["ntfy", sendNtfy], ["telegram", sendTelegram], ["email", sendEmail], ["push", sendPush]]) {
+  for (const [name, fn] of [["ntfy", sendNtfy], ["telegram", sendTelegram], ["email", sendReminderEmail], ["push", sendPush]]) {
     if (!channels[name]) continue;
     try { await fn(msg, h); sent.push(name); } catch (e) { console.error(`Reminder via ${name} failed (${h.id}):`, e.message); failed.push({ channel: name, error: e.message }); }
   }
@@ -554,6 +587,7 @@ function weeklyReport(h) {
   const day = isoDay(new Date());
   const summary = report.summarize({
     items: sortedItems(h), history: historySummary(h), days: reminderSettings(h).days,
+    supplies: Object.values(h.items.data).filter(isSupply).map((it) => ({ ...it, low: isLow(it) })).sort((a, b) => a.name.localeCompare(b.name)),
     shopping: Object.values(h.shopping.data).filter((e) => !e.done).sort((a, b) => a.addedAt - b.addedAt),
   });
   return { report, summary, day };
@@ -631,6 +665,7 @@ function adminState() {
       members: membersOf(x.id).map(([, u]) => u.name).sort((a, b) => a.localeCompare(b)), items: Object.keys(x.items.data).length,
     })).sort((a, b) => (b.first - a.first) || a.createdAt - b.createdAt),
     invites: Object.entries(invitesDb.data).map(([code, v]) => ({ code, ...v })).sort((a, b) => b.createdAt - a.createdAt),
+    timeZone: timeZone(), zones: [...ZONES].sort(),
   };
 }
 // Removes a household with its people and files. Its last state is kept as a backup until
@@ -730,7 +765,7 @@ async function api(req, res, p, me) {
     if (!ID_RE.test(id)) return send(res, 400, { error: "Bad label code." });
     if (req.method === "PUT") {
       const data = cleanItem(await readBody(req));
-      if (!data) return send(res, 400, { error: "Name and best-before date are required." });
+      if (!data) return send(res, 400, { error: "Name and best-before date are required (household supplies only need a name)." });
       const prev = h.items.data[id];
       if (!prev && Object.keys(h.items.data).length >= 5000) return send(res, 507, { error: "The shelf is full." });
       data.addedBy = prev?.addedBy || me.name;
@@ -764,7 +799,11 @@ async function api(req, res, p, me) {
     it.qty = Math.max(0, Math.round((+it.qty - 1) * 1000) / 1000); it.updatedAt = Date.now(); it.updatedBy = me.name;
     h.bump(); await h.items.save();
     if (take > 0) await logEvent(h, it, outcome, take, me);
-    return send(res, 200, { ok: true, item: it, version: h.version });
+    let addedToShopping = false;
+    if (isLow(it) && !Object.values(h.shopping.data).some((e) => !e.done && e.name.toLowerCase() === it.name.toLowerCase())) {
+      h.shopping.data[crypto.randomUUID()] = { name: it.name, done: false, addedAt: Date.now(), updatedAt: Date.now() }; await h.shopping.save(); h.bump(); addedToShopping = true;
+    }
+    return send(res, 200, { ok: true, item: it, addedToShopping, version: h.version });
   }
 
   if ((r = m(/^\/api\/shopping\/([^/]+)$/))) {
@@ -796,7 +835,7 @@ async function api(req, res, p, me) {
       reminders: (() => {
         const r = reminderSettings(h), acct = mailAccount();
         return { channels: activeChannels(h), enabled: r.enabled, time: r.time, days: r.days, frequency: r.frequency, weekday: r.weekday, monthday: r.monthday, mailTo: r.mailTo,
-          mailReady: mailAccountReady(acct), canEditMail: me.admin, lastSent: h.meta.data.lastReminder || null, tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          mailReady: mailAccountReady(acct), canEditMail: me.admin, lastSent: h.meta.data.lastReminder || null, tz: timeZone(),
           ...(me.admin ? { smtpUser: acct.smtpUser, smtpHost: acct.smtpHost, smtpPort: acct.smtpPort, hasPassword: !!acct.smtpPass } : {}) };
       })(),
       backups: await backupStatus(h, me.admin),
@@ -999,6 +1038,13 @@ async function api(req, res, p, me) {
   if (p === "/api/admin" || p.startsWith("/api/admin/")) {
     if (!me.admin) return send(res, 403, { error: "Only an admin can do that." });
     if (p === "/api/admin" && req.method === "GET") return send(res, 200, adminState());
+    if (p === "/api/admin/timezone" && req.method === "PUT") {
+      const tz = String((await readBody(req)).timeZone || "");
+      if (!validZone(tz)) return send(res, 400, { error: "Pick a time zone from the list." });
+      siteDb.data = { ...siteDb.data, tz }; await siteDb.save(); applyTimeZone();
+      console.log(`Time zone set to ${tz} by ${me.name}.`);
+      return send(res, 200, { ok: true, timeZone: timeZone() });
+    }
     if (p === "/api/admin/invites" && req.method === "POST") {
       pruneInvites();
       if (Object.keys(invitesDb.data).length >= 20) return send(res, 507, { error: "There are 20 unused codes already. Remove some first." });
@@ -1097,7 +1143,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Pantry Shelf ${require("./package.json").version} listening on :${PORT}, data in ${DATA_DIR}`);
+  console.log(`Pantry Shelf ${require("./package.json").version} listening on :${PORT}, data in ${DATA_DIR}, time zone ${timeZone()}`);
   console.log(`Households: ${Object.keys(householdsDb.data).length} of ${MAX_HOUSEHOLDS}; email: ${mailAccountReady() ? "set up" : "not set up"}; backups: ${backupDirOk ? `${BACKUP_DIR} at ${BACKUP_TIME}, keep ${BACKUP_KEEP_DAYS} days` : "off"}`);
 });
 for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => {

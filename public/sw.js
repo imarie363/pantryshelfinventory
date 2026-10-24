@@ -1,8 +1,8 @@
 // Pantry Shelf service worker: lets the app open from the home screen without a connection
 // (showing the shelf as it was last loaded) and shows phone notifications.
-const SHELL = "pantry-shell-2.9.0";
+const SHELL = "pantry-shell-2.10.0";
 const DATA = "pantry-data";
-const FILES = ["/", "/styles.css?v=2.9", "/app.js?v=2.9", "/vendor/qrcode.js", "/vendor/jsQR.js", "/vendor/zxing.min.js",
+const FILES = ["/", "/styles.css?v=2.10", "/app.js?v=2.10", "/vendor/qrcode.js", "/vendor/jsQR.js", "/vendor/zxing.min.js",
   "/default-cover.jpg?v=1", "/icon-192.png", "/icon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

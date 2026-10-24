@@ -1,6 +1,6 @@
 {
   "name": "pantry-shelf",
-  "version": "2.9.0",
+  "version": "2.10.0",
   "private": true,
   "description": "Scan QR labels on pantry items and see what to use first.",
   "main": "server.js",
