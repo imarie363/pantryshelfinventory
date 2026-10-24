@@ -324,12 +324,23 @@ input::placeholder { color: color-mix(in srgb, var(--muted) 75%, transparent); }
 /* the date sits in a wide, low band in the middle of the picture */
 .date-vf { aspect-ratio: 4 / 3; }
 .date-vf::after { inset: 34% 8%; }
+.date-vf.name-vf::after { inset: 14% 5%; }
+#nameScanBtn { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; }
+#nameScanBtn .icon { width: 16px; height: 16px; }
 .date-vf.found::after { border-color: #7ee08a; box-shadow: 0 0 0 999px rgba(0,0,0,.35); }
 
 /* ---------- recipe searches on the web ---------- */
 .web-recipes .people li { flex-wrap: wrap; gap: 8px; }
 .web-recipes .links { display: flex; gap: 8px; flex-wrap: wrap; }
 .web-recipes .links a { font-size: .85rem; font-weight: 700; padding: 6px 12px; border-radius: 999px; background: var(--ok-bg); color: var(--ok); text-decoration: none; }
+
+/* ---------- search ---------- */
+.search { position: relative; }
+.search .icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); width: 20px; height: 20px; color: var(--muted); pointer-events: none; }
+.search input { padding-left: 44px; border-radius: 999px; }
+.search-results { display: flex; flex-direction: column; gap: 12px; }
+.search-results .pill strong { font-size: 1.2rem; }
+.search-none { display: flex; flex-direction: column; gap: 12px; }
 
 /* ---------- same item, several dates ---------- */
 .more-dates { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
