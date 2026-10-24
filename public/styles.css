@@ -316,6 +316,14 @@ input::placeholder { color: color-mix(in srgb, var(--muted) 75%, transparent); }
 .kinds button { flex: 1 1 0; justify-content: center; }
 .view > .kinds { margin-bottom: -4px; }
 
+/* ---------- same item, several dates ---------- */
+.more-dates { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.more-dates:empty { display: none; }
+.date-row { display: grid; grid-template-columns: 5.5rem 1fr auto; gap: 8px; align-items: center; }
+.date-row input { min-width: 0; }
+.date-row .x { width: 40px; height: 40px; }
+.facts .batches { display: flex; flex-direction: column; gap: 2px; }
+
 /* ---------- finish choices ---------- */
 .choice { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .check input[type="radio"] { width: 22px; height: 22px; min-height: 0; accent-color: var(--accent); flex: none; margin: 0; }

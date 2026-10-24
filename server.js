@@ -192,9 +192,32 @@ function cleanItem(body) {
     if (!out.name || (out.expiry && !DATE_RE.test(out.expiry))) return null;
     return out;
   }
+  // The same food with different best-before dates: batches [{qty, expiry}], oldest first.
+  // qty and expiry stay on the item as the total and the earliest date.
+  if (Array.isArray(body.batches) && body.batches.length) {
+    const byDate = new Map();
+    for (const b of body.batches.slice(0, 20)) {
+      const e = str(b?.expiry, 10), q = Number(b?.qty);
+      if (!DATE_RE.test(e)) return null;
+      byDate.set(e, (byDate.get(e) || 0) + (Number.isFinite(q) && q >= 0 ? q : 1));
+    }
+    setBatches(out, [...byDate].map(([expiry, qty]) => ({ qty, expiry })));
+  }
   if (!out.name || !DATE_RE.test(out.expiry)) return null;
   return out;
 }
+// Sorts the batches, drops empty ones (keeping at least one) and sets qty/expiry from them.
+// A single batch is stored as a plain item.
+function setBatches(it, batches) {
+  let list = batches.map((b) => ({ qty: Math.round(b.qty * 1000) / 1000, expiry: b.expiry })).sort((a, b) => a.expiry.localeCompare(b.expiry));
+  const left = list.filter((b) => b.qty > 0);
+  list = left.length ? left : list.slice(-1);
+  it.qty = Math.round(list.reduce((n, b) => n + b.qty, 0) * 1000) / 1000;
+  it.expiry = list[0].expiry;
+  if (list.length > 1) it.batches = list; else delete it.batches;
+  return it;
+}
+const batchesOf = (it) => (Array.isArray(it.batches) && it.batches.length ? it.batches : [{ qty: it.qty, expiry: it.expiry }]);
 function cleanEntry(body) {
   const name = str(body.name, 80);
   if (!name) return null;
@@ -210,8 +233,10 @@ function daysLeft(expiry, now = new Date()) {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   return Math.round((new Date(y, m - 1, d) - today) / 86400000);
 }
-// Everything with a best-before date (food, and supplies that have one), soonest first
-const sortedItems = (h) => Object.entries(h.items.data).filter(([, it]) => it.expiry).map(([id, it]) => ({ id, ...it, days: daysLeft(it.expiry) })).sort((a, b) => a.days - b.days);
+// Everything with a best-before date (food, and supplies that have one), soonest first.
+// An item with several dates gives one row per date, with that date's amount.
+const sortedItems = (h) => Object.entries(h.items.data).filter(([, it]) => it.expiry)
+  .flatMap(([id, it]) => batchesOf(it).map((b) => ({ id, ...it, qty: b.qty, expiry: b.expiry, days: daysLeft(b.expiry) }))).sort((a, b) => a.days - b.days);
 const isLow = (it) => isSupply(it) && +it.qty <= (Number.isFinite(+it.lowAt) ? +it.lowAt : 1);
 const lowSupplies = (h) => Object.entries(h.items.data).map(([id, it]) => ({ id, ...it })).filter(isLow).sort((a, b) => a.name.localeCompare(b.name));
 const supplyCount = (h) => Object.values(h.items.data).filter(isSupply).length;
@@ -268,7 +293,8 @@ function ingredientGuesses(name) {
   return [...new Set(out)].slice(0, 4);
 }
 async function recipeIdeas(h) {
-  const pool = sortedItems(h).filter((it) => !isSupply(it) && it.days >= -1).slice(0, 8);
+  const seen = new Set();
+  const pool = sortedItems(h).filter((it) => !isSupply(it) && it.days >= -1 && !seen.has(it.id) && seen.add(it.id)).slice(0, 8);
   const meals = new Map(); // id -> {id, name, thumb, url, uses:Set, score}
   const used = [];
   for (const it of pool) {
@@ -796,7 +822,13 @@ async function api(req, res, p, me) {
     const body = await readBody(req).catch(() => ({}));
     const outcome = body.outcome === "wasted" ? "wasted" : "used";
     const take = Math.min(1, Math.max(0, +it.qty));
-    it.qty = Math.max(0, Math.round((+it.qty - 1) * 1000) / 1000); it.updatedAt = Date.now(); it.updatedBy = me.name;
+    if (it.batches) {
+      // Take it from the batch that expires first
+      const list = it.batches.map((b) => ({ ...b })), first = list.find((b) => b.qty > 0);
+      if (first) first.qty = Math.max(0, first.qty - 1);
+      setBatches(it, list);
+    } else it.qty = Math.max(0, Math.round((+it.qty - 1) * 1000) / 1000);
+    it.updatedAt = Date.now(); it.updatedBy = me.name;
     h.bump(); await h.items.save();
     if (take > 0) await logEvent(h, it, outcome, take, me);
     let addedToShopping = false;

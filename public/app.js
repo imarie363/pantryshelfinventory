@@ -262,7 +262,7 @@
       for (const it of g) {
         ul.append(el("li", {}, el("button", { class: "item u-" + urgency(daysLeft(it.expiry)).cls.slice(2), onclick: () => openItem(it.id) },
           el("span", { class: "name" }, it.name || "Unnamed item"),
-          el("span", { class: "meta" }, icon(PLACE_ICON[it.place] || "jar"), `${it.place || "Pantry"} · ${qtyText(it)}`),
+          el("span", { class: "meta" }, icon(PLACE_ICON[it.place] || "jar"), `${it.place || "Pantry"} · ${qtyText(it)}${it.batches?.length > 1 ? ` · ${it.batches.length} dates` : ""}`),
           pill(it.expiry))));
       }
       host.append(el("section", { class: "band", id: "band-" + key },
@@ -307,6 +307,9 @@
     $("#f-exp").required = !supply;
     $("#expLabel").textContent = supply ? "Best before (optional)" : "Best before / use by";
     $("#quick").hidden = supply;
+    $("#addDate").hidden = supply;
+    if (supply) $("#moreDates").replaceChildren();
+    datesChanged();
     $("#lowBox").hidden = !supply;
     $("#f-name").placeholder = supply ? "Toilet paper, detergent, dish soap…" : "Rice, tomato sauce, oats…";
   }
@@ -315,7 +318,23 @@
     setKind(b.dataset.kind);
     if (!editingId) $("#f-place").value = editKind === "supply" ? "Storage" : "Pantry";
   });
-  function openEdit(id, presetCode, presetBarcode) {
+  // More best-before dates for the same item: each row is an amount and a date
+  let lastDate = null; // the date field the +1 week… chips fill in
+  function dateRow(qty = 1, expiry = "") {
+    const q = el("input", { type: "number", class: "d-qty", min: "0", step: "any", inputmode: "decimal", value: String(qty), "aria-label": "How many with this date" });
+    const d = el("input", { type: "date", class: "d-exp", required: true, value: expiry, "aria-label": "Best before", onfocus: (e) => { lastDate = e.target; } });
+    const li = el("li", { class: "date-row" }, q, d, el("button", { type: "button", class: "x", "aria-label": "Remove this date", onclick: () => { li.remove(); if (lastDate === d) lastDate = null; datesChanged(); } }, "×"));
+    return li;
+  }
+  function datesChanged() {
+    $("#qtyLabel").textContent = $("#moreDates").children.length ? "Quantity (first date)" : "Quantity";
+  }
+  $("#addDate").addEventListener("click", () => {
+    const li = dateRow(); $("#moreDates").append(li); datesChanged();
+    lastDate = li.querySelector(".d-exp"); lastDate.focus();
+  });
+  $("#f-exp").addEventListener("focus", () => { lastDate = null; });
+  function openEdit(id, presetCode, presetBarcode, opts = {}) {
     editingId = id || null;
     pendingCode = presetCode || null;
     const it = id ? items.get(id) : null;
@@ -323,15 +342,19 @@
     $("#edit-h").textContent = it ? "Edit or refill" : "Add item";
     $("#editCode").textContent = presetCode ? `New item for label ${presetCode}` : it ? `Label ${id}` : "A QR label is made when you save.";
     $("#f-name").value = it?.name || "";
-    $("#f-qty").value = it ? it.qty : 1;
+    const batches = it?.batches?.length ? it.batches : null;
+    $("#f-qty").value = batches ? batches[0].qty : it ? it.qty : 1;
     $("#f-unit").value = it?.unit || "pcs";
     setKind(it ? it.kind : shelfKind);
     $("#f-place").value = it?.place || (editKind === "supply" ? "Storage" : "Pantry");
-    $("#f-exp").value = it?.expiry || "";
+    $("#f-exp").value = batches ? batches[0].expiry : it?.expiry || "";
+    $("#moreDates").replaceChildren(...(batches || []).slice(1).map((b) => dateRow(b.qty, b.expiry)));
+    lastDate = null; datesChanged();
     $("#f-low").value = it && Number.isFinite(+it.lowAt) ? +it.lowAt : 1;
     setBarcodeNote(editBarcode ? `Barcode ${editBarcode}` : "");
     if (!$("#editDlg").open) $("#editDlg").showModal();
     if (presetBarcode) applyBarcode(presetBarcode);
+    else if (opts.newDate) $("#addDate").click();
     else if (!it) $("#f-name").focus();
   }
   function setBarcodeNote(text) { const n = $("#barcodeNote"); n.textContent = text; n.hidden = !text; }
@@ -362,7 +385,7 @@
     const d = todayStart();
     if (b.dataset.days) d.setDate(d.getDate() + Number(b.dataset.days));
     if (b.dataset.months) d.setMonth(d.getMonth() + Number(b.dataset.months));
-    $("#f-exp").value = iso(d);
+    (lastDate?.isConnected ? lastDate : $("#f-exp")).value = iso(d);
   });
   async function saveItem(id, data) {
     const res = await api("PUT", `/api/items/${id}`, data);
@@ -381,6 +404,11 @@
       barcode: editBarcode || undefined,
     };
     if (editKind === "supply") { const low = parseFloat($("#f-low").value); data.kind = "supply"; data.lowAt = Number.isFinite(low) && low >= 0 ? low : 1; }
+    const extra = editKind === "food" ? [...$("#moreDates").children].map((li) => ({ qty: parseFloat(li.querySelector(".d-qty").value), expiry: li.querySelector(".d-exp").value })) : [];
+    if (extra.length) {
+      if (extra.some((b) => !b.expiry)) return;
+      data.batches = [{ qty: data.qty, expiry: data.expiry }, ...extra.map((b) => ({ qty: Number.isFinite(b.qty) ? b.qty : 1, expiry: b.expiry }))];
+    }
     if (!data.name || (editKind === "food" && !data.expiry)) return;
     $("#saveBtn").disabled = true;
     try {
@@ -404,12 +432,14 @@
     const f = $("#itemFacts"); f.replaceChildren();
     const rows = [["Quantity", qtyText(it)], ["Where", it.place || (isSupply(it) ? "Storage" : "Pantry")]];
     if (isSupply(it)) rows.push(["Running low at", `${Number.isFinite(+it.lowAt) ? +it.lowAt : 1} ${it.unit || ""}`.trim()]);
-    if (it.expiry) rows.push(["Best before", nice(parseDate(it.expiry), true)]);
+    if (it.batches?.length > 1) rows.push(["Best before", el("span", { class: "batches" }, ...it.batches.map((b) => el("span", {}, `${qtyText({ qty: b.qty, unit: it.unit })} · ${nice(parseDate(b.expiry), true)}`)))]);
+    else if (it.expiry) rows.push(["Best before", nice(parseDate(it.expiry), true)]);
     rows.push(["Label code", id]);
     if (it.barcode) rows.push(["Barcode", it.barcode]);
     if (it.addedBy && it.addedBy !== "Household") rows.push(["Added by", it.addedBy]);
     for (const [k, v] of rows) f.append(el("dt", {}, k), el("dd", { class: k === "Label code" || k === "Barcode" ? "code" : "" }, v));
     $("#useOne").disabled = !(it.qty > 0);
+    $("#addBatch").hidden = isSupply(it);
     drawItemLabel($("#labelCanvas"), id, it);
   }
   function openItem(id) {
@@ -419,6 +449,7 @@
     if (!$("#itemDlg").open) $("#itemDlg").showModal();
   }
   $("#editItem").addEventListener("click", () => { $("#itemDlg").close(); openEdit(currentId); });
+  $("#addBatch").addEventListener("click", () => { $("#itemDlg").close(); openEdit(currentId, null, null, { newDate: true }); });
   function askFinished(lastOne) {
     const it = items.get(currentId);
     $("#confirmText").textContent = lastOne ? `That was the last one. Remove ${it?.name || "it"} from the shelf? You can reuse its label for something new.`
