@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
-<link rel="stylesheet" href="/styles.css?v=2.11">
+<link rel="stylesheet" href="/styles.css?v=2.12">
 </head>
 <body>
 <svg width="0" height="0" class="visually-hidden" aria-hidden="true">
@@ -342,6 +342,10 @@
         <p class="form-note">When you're down to this many, it goes on the shopping list and in the reminder.</p></div>
       <div class="field"><label for="f-exp" id="expLabel">Best before / use by</label><input id="f-exp" type="date" required>
         <div class="chips" id="quick"><button type="button" data-days="7">+1 week</button><button type="button" data-months="1">+1 month</button><button type="button" data-months="3">+3 months</button><button type="button" data-months="6">+6 months</button><button type="button" data-months="12">+1 year</button></div>
+        <div class="cam-date">
+          <label class="btn" for="expPhoto"><svg class="icon"><use href="#i-scan"/></svg>Read the date with the camera<input id="expPhoto" class="visually-hidden" type="file" accept="image/*" capture="environment"></label>
+          <div class="chips" id="ocrPick" hidden></div>
+        </div>
         <ul class="more-dates" id="moreDates"></ul>
         <button type="button" class="linkish" id="addDate">+ Same item with another date</button>
       </div>
@@ -405,6 +409,6 @@
 <script src="/vendor/qrcode.js"></script>
 <script src="/vendor/jsQR.js"></script>
 <script src="/vendor/zxing.min.js"></script>
-<script src="/app.js?v=2.11"></script>
+<script src="/app.js?v=2.12"></script>
 </body>
 </html>
