@@ -349,7 +349,7 @@
     $("#f-place").value = it?.place || (editKind === "supply" ? "Storage" : "Pantry");
     $("#f-exp").value = batches ? batches[0].expiry : it?.expiry || "";
     $("#moreDates").replaceChildren(...(batches || []).slice(1).map((b) => dateRow(b.qty, b.expiry)));
-    lastDate = null; datesChanged(); $("#ocrPick").hidden = true;
+    lastDate = null; datesChanged();
     $("#f-low").value = it && Number.isFinite(+it.lowAt) ? +it.lowAt : 1;
     setBarcodeNote(editBarcode ? `Barcode ${editBarcode}` : "");
     if (!$("#editDlg").open) $("#editDlg").showModal();
@@ -387,42 +387,99 @@
     if (b.dataset.months) d.setMonth(d.getMonth() + Number(b.dataset.months));
     (lastDate?.isConnected ? lastDate : $("#f-exp")).value = iso(d);
   });
-  // Photo of the printed date: the server reads it; typing or picking the date still works as before
+  // ---------- scanning the best-before date ----------
+  // The camera shows a band in the middle; a few times a second that part of the picture goes to the
+  // server, which reads the text. A date printed after THT/best before/exp is filled in at once; any
+  // other date once it has been read twice in a row. Typing or picking the date works as before.
+  let dateTarget = null, dateStream = null, dateScanning = false, lastSeen = null;
+  const grey = (ctx) => { ctx.filter = "grayscale(1) contrast(1.4)"; };
+  async function readDate(blob) {
+    const res = await fetch("/api/ocr/date", { method: "POST", headers: { "Content-Type": "image/jpeg" }, body: blob, credentials: "same-origin" });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401) { showLogin(); throw new Error("Log in again."); }
+    if (!res.ok) throw new Error(data.error || "Couldn't read the date.");
+    return data.dates || [];
+  }
+  function useOcrDate(expiry) {
+    if (dateTarget?.isConnected) dateTarget.value = expiry;
+    navigator.vibrate?.(60);
+    $("#dateDlg").close();
+    toast(`Best before ${nice(parseDate(expiry), true)}. Check it matches the pack.`);
+  }
+  function offerDates(dates) {
+    $("#ocrPick").replaceChildren(...dates.map((d) => el("button", { type: "button", onclick: () => useOcrDate(d.expiry) }, nice(parseDate(d.expiry), true))));
+    $("#ocrPick").hidden = false;
+  }
+  // The band inside the frame, upscaled so small print reads better
+  function frameBand(v) {
+    const vw = v.videoWidth, vh = v.videoHeight, box = $("#dateVf").getBoundingClientRect();
+    // the video is shown with object-fit: cover, so work out which part of it is on screen
+    const scale = Math.max(box.width / vw, box.height / vh), shownW = box.width / scale, shownH = box.height / scale;
+    const sx = (vw - shownW) / 2 + shownW * 0.08, sy = (vh - shownH) / 2 + shownH * 0.34, sw = shownW * 0.84, sh = shownH * 0.32;
+    const out = Math.min(2, 1400 / sw), cv = document.createElement("canvas");
+    cv.width = Math.round(sw * out); cv.height = Math.round(sh * out);
+    const ctx = cv.getContext("2d"); grey(ctx); ctx.drawImage(v, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+    return new Promise((r) => cv.toBlob(r, "image/jpeg", 0.85));
+  }
+  async function startDateCamera() {
+    $("#dateVf").hidden = true; $("#dateVf").classList.remove("found"); $("#ocrPick").hidden = true; lastSeen = null;
+    $("#dateHint").textContent = "Starting the camera…";
+    if (!navigator.mediaDevices?.getUserMedia) { $("#dateHint").textContent = "This browser can't show the camera here. Take a photo instead."; return; }
+    try {
+      dateStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    } catch { dateStream = null; $("#dateHint").textContent = "The camera isn't available. Take a photo instead, or type the date."; return; }
+    if (!$("#dateDlg").open) { stopDateCamera(); return; }
+    const v = $("#dateVideo"); v.srcObject = dateStream; await v.play().catch(() => {});
+    $("#dateVf").hidden = false;
+    $("#dateHint").textContent = "Hold the best-before date inside the frame, close and sharp. It fills in by itself.";
+    dateScanning = true;
+    while (dateScanning) {
+      const t0 = Date.now();
+      if (v.readyState >= 2) {
+        try {
+          const dates = await readDate(await frameBand(v));
+          if (!dateScanning) break;
+          const best = dates[0];
+          if (best && (best.label || dates.length === 1) && (best.label || lastSeen === best.expiry)) {
+            $("#dateVf").classList.add("found"); dateScanning = false; setTimeout(() => useOcrDate(best.expiry), 250); break;
+          }
+          lastSeen = best?.expiry || null;
+          if (dates.length > 1) { offerDates(dates); $("#dateHint").textContent = "More than one date in view. Tap the best-before date, or move closer to it."; }
+        } catch (err) { if (!dateScanning) break; $("#dateHint").textContent = err.message; }
+      }
+      await new Promise((r) => setTimeout(r, Math.max(0, 500 - (Date.now() - t0))));
+    }
+  }
+  function stopDateCamera() { dateScanning = false; if (dateStream) { dateStream.getTracks().forEach((t) => t.stop()); dateStream = null; } $("#dateVf").hidden = true; }
+  $("#dateDlg").addEventListener("close", stopDateCamera);
+  $("#dateScanBtn").addEventListener("click", () => {
+    dateTarget = lastDate?.isConnected ? lastDate : $("#f-exp");
+    $("#dateDlg").showModal();
+    startDateCamera();
+  });
+  // A photo instead of the live camera
   function photoForOcr(file) {
     return new Promise((resolve, reject) => {
       const img = new Image(), url = URL.createObjectURL(file);
       img.onload = () => {
         const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
         const cv = document.createElement("canvas"); cv.width = Math.round(img.width * scale); cv.height = Math.round(img.height * scale);
-        const ctx = cv.getContext("2d"); ctx.filter = "grayscale(1) contrast(1.4)"; ctx.drawImage(img, 0, 0, cv.width, cv.height);
+        const ctx = cv.getContext("2d"); grey(ctx); ctx.drawImage(img, 0, 0, cv.width, cv.height);
         URL.revokeObjectURL(url); cv.toBlob((b) => (b ? resolve(b) : reject(new Error("Couldn't use that photo."))), "image/jpeg", 0.85);
       };
       img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Couldn't open that photo.")); };
       img.src = url;
     });
   }
-  function useOcrDate(target, expiry) {
-    target.value = expiry; $("#ocrPick").hidden = true;
-    toast(`Best before ${nice(parseDate(expiry), true)}. Check it matches the pack.`);
-  }
   $("#expPhoto").addEventListener("change", async (e) => {
     const file = e.target.files?.[0]; e.target.value = ""; if (!file) return;
-    const target = lastDate?.isConnected ? lastDate : $("#f-exp"), pick = $("#ocrPick");
-    pick.hidden = true; toast("Reading the date…");
+    stopDateCamera(); $("#ocrPick").hidden = true; $("#dateHint").textContent = "Reading the date…";
     try {
-      const blob = await photoForOcr(file);
-      const res = await fetch("/api/ocr/date", { method: "POST", headers: { "Content-Type": "image/jpeg" }, body: blob, credentials: "same-origin" });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 401) return showLogin();
-      if (!res.ok) throw new Error(data.error || "Couldn't read the photo.");
-      const dates = data.dates || [];
-      if (!dates.length) return toast("No date found. Try closer, with the date filling the photo, or type it.");
-      if (dates.length === 1) return useOcrDate(target, dates[0].expiry);
-      // Several dates on the pack (packed on, best before…): let them pick
-      pick.replaceChildren(...dates.map((d) => el("button", { type: "button", onclick: () => useOcrDate(target, d.expiry) }, nice(parseDate(d.expiry), true))));
-      pick.hidden = false;
-      toast("Found more than one date. Tap the best-before date.");
-    } catch (err) { toast(err.message); }
+      const dates = await readDate(await photoForOcr(file));
+      if (!dates.length) { $("#dateHint").textContent = "No date found. Try closer, with the date filling the photo, or type it."; return; }
+      if (dates.length === 1) return useOcrDate(dates[0].expiry);
+      offerDates(dates); $("#dateHint").textContent = "Found more than one date. Tap the best-before date.";
+    } catch (err) { $("#dateHint").textContent = err.message; }
   });
   async function saveItem(id, data) {
     const res = await api("PUT", `/api/items/${id}`, data);
@@ -555,7 +612,29 @@
 
   // ---------- recipes ----------
   let recipesLoading = false;
+  // Search links for what expires first: Google's top results, plus Dutch (Allerhande) and
+  // Filipino (Panlasang Pinoy) recipe sites. These work with any language, unlike TheMealDB.
+  const SITES = [
+    ["Google", (q) => `https://www.google.com/search?q=${encodeURIComponent(`${q} recipe`)}`],
+    ["Allerhande", (q) => `https://www.ah.nl/allerhande/recepten-zoeken?query=${encodeURIComponent(q)}`],
+    ["Panlasang Pinoy", (q) => `https://panlasangpinoy.com/?s=${encodeURIComponent(q)}`],
+  ];
+  function renderWebRecipes() {
+    const seen = new Set(), first = [];
+    for (const it of [...items.values()].filter((i) => i.expiry && !isSupply(i) && daysLeft(i.expiry) >= -1).sort((a, b) => a.expiry.localeCompare(b.expiry))) {
+      const n = String(it.name || "").replace(/\s*\([^)]*\)\s*/g, " ").trim(); // "Coconut milk (Aroy-D)" → "Coconut milk"
+      if (n && !seen.has(n.toLowerCase())) { seen.add(n.toLowerCase()); first.push(n); }
+      if (first.length >= 6) break;
+    }
+    $("#webRecipes").hidden = !first.length;
+    const link = (label, href) => el("a", { href, target: "_blank", rel: "noopener" }, label);
+    const both = first.slice(0, 3).join(" ");
+    $("#webAll").replaceChildren(el("a", { class: "btn primary", href: SITES[0][1](both), target: "_blank", rel: "noopener" }, `Google: ${first.slice(0, 3).join(", ")}`));
+    $("#webItems").replaceChildren(...first.map((n) => el("li", {}, el("b", {}, n),
+      el("span", { class: "links" }, ...SITES.map(([label, url]) => link(label, url(n)))))));
+  }
   async function loadRecipes(force) {
+    renderWebRecipes();
     const fp = [...items.values()].map((i) => i.name + i.expiry).sort().join("|");
     if (!force && (recipesLoading || recipesFor === fp)) return;
     recipesLoading = true; recipesFor = fp;

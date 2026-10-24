@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
-<link rel="stylesheet" href="/styles.css?v=2.12">
+<link rel="stylesheet" href="/styles.css?v=2.13">
 </head>
 <body>
 <svg width="0" height="0" class="visually-hidden" aria-hidden="true">
@@ -127,9 +127,15 @@
   <!-- Recipes -->
   <section class="view" id="view-recipes" hidden>
     <div class="band-head"><h2>Ideas for what needs eating first</h2><button class="linkish" id="recipeRefresh"><svg class="icon"><use href="#i-refresh"/></svg>Refresh</button></div>
+    <section class="card web-recipes" id="webRecipes" hidden>
+      <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-pot"/></svg></span><h3>Search the web</h3></div>
+      <p class="muted small">Opens the top results for what needs eating first. Dutch and Filipino names work too.</p>
+      <div class="tools" id="webAll"></div>
+      <ul class="people" id="webItems"></ul>
+    </section>
     <p class="muted" id="recipeNote">Looking for recipes…</p>
     <div class="recipes" id="recipeList"></div>
-    <p class="muted small">Recipes from TheMealDB, matched on the English names of your items.</p>
+    <p class="muted small">Recipe cards from TheMealDB, matched on the English names of your items.</p>
   </section>
 
   <!-- History -->
@@ -301,6 +307,19 @@
   <button class="btn" id="addBtn"><svg class="icon"><use href="#i-plus"/></svg>Add item</button>
 </div>
 
+<dialog id="dateDlg" aria-labelledby="date-h">
+  <div class="sheet">
+    <div class="sheet-head"><h3 id="date-h">Scan the best-before date</h3><button class="x" data-close aria-label="Close">×</button></div>
+    <div class="viewfinder date-vf" id="dateVf" hidden><video id="dateVideo" playsinline muted></video></div>
+    <p class="muted" id="dateHint">Starting the camera…</p>
+    <div class="chips" id="ocrPick" hidden></div>
+    <div class="tools">
+      <label class="btn" for="expPhoto">Take a photo instead<input id="expPhoto" class="visually-hidden" type="file" accept="image/*" capture="environment"></label>
+      <button class="btn" type="button" data-close>Type it instead</button>
+    </div>
+  </div>
+</dialog>
+
 <dialog id="scanDlg" aria-labelledby="scan-h">
   <div class="sheet">
     <div class="sheet-head"><h3 id="scan-h">Scan a label or barcode</h3><button class="x" data-close aria-label="Close">×</button></div>
@@ -343,8 +362,7 @@
       <div class="field"><label for="f-exp" id="expLabel">Best before / use by</label><input id="f-exp" type="date" required>
         <div class="chips" id="quick"><button type="button" data-days="7">+1 week</button><button type="button" data-months="1">+1 month</button><button type="button" data-months="3">+3 months</button><button type="button" data-months="6">+6 months</button><button type="button" data-months="12">+1 year</button></div>
         <div class="cam-date">
-          <label class="btn" for="expPhoto"><svg class="icon"><use href="#i-scan"/></svg>Read the date with the camera<input id="expPhoto" class="visually-hidden" type="file" accept="image/*" capture="environment"></label>
-          <div class="chips" id="ocrPick" hidden></div>
+          <button class="btn" type="button" id="dateScanBtn"><svg class="icon"><use href="#i-scan"/></svg>Scan the date with the camera</button>
         </div>
         <ul class="more-dates" id="moreDates"></ul>
         <button type="button" class="linkish" id="addDate">+ Same item with another date</button>
@@ -409,6 +427,6 @@
 <script src="/vendor/qrcode.js"></script>
 <script src="/vendor/jsQR.js"></script>
 <script src="/vendor/zxing.min.js"></script>
-<script src="/app.js?v=2.12"></script>
+<script src="/app.js?v=2.13"></script>
 </body>
 </html>
