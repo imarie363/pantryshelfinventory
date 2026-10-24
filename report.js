@@ -28,7 +28,7 @@ function summarize({ items, supplies = [], shopping, history, days = 7 }) {
   const places = new Map();
   for (const it of food) { const p = it.place || "Pantry"; if (!places.has(p)) places.set(p, []); places.get(p).push(it); }
   const month = history.months[history.months.length - 1];
-  return { expired, soon, later, places: [...places.entries()].sort((a, b) => b[1].length - a[1].length), month, history, shopping, days, total: food.length,
+  return { expired, soon, later, places: [...places.entries()].sort((a, b) => b[1].length - a[1].length), month, history, shopping, days, total: new Set(food.map((i) => i.id || i.name)).size,
     supplies, low: supplies.filter((i) => i.low) };
 }
 const countLine = (s) => `${s.total} food item${s.total === 1 ? "" : "s"}${s.supplies.length ? ` · ${s.supplies.length} household suppl${s.supplies.length === 1 ? "y" : "ies"}` : ""}`;

@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
-<link rel="stylesheet" href="/styles.css?v=2.10">
+<link rel="stylesheet" href="/styles.css?v=2.11">
 </head>
 <body>
 <svg width="0" height="0" class="visually-hidden" aria-hidden="true">
@@ -332,7 +332,7 @@
       </div>
       <datalist id="nameHints"></datalist>
       <div class="row2">
-        <div class="field"><label for="f-qty">Quantity</label><input id="f-qty" type="number" min="0" step="any" value="1" inputmode="decimal"></div>
+        <div class="field"><label for="f-qty" id="qtyLabel">Quantity</label><input id="f-qty" type="number" min="0" step="any" value="1" inputmode="decimal"></div>
         <div class="field"><label for="f-unit">Unit</label>
           <select id="f-unit"><option>pcs</option><option>cans</option><option>jars</option><option>packs</option><option>bottles</option><option>boxes</option><option>bags</option><option>rolls</option><option>kg</option><option>g</option><option>L</option></select></div>
       </div>
@@ -342,6 +342,8 @@
         <p class="form-note">When you're down to this many, it goes on the shopping list and in the reminder.</p></div>
       <div class="field"><label for="f-exp" id="expLabel">Best before / use by</label><input id="f-exp" type="date" required>
         <div class="chips" id="quick"><button type="button" data-days="7">+1 week</button><button type="button" data-months="1">+1 month</button><button type="button" data-months="3">+3 months</button><button type="button" data-months="6">+6 months</button><button type="button" data-months="12">+1 year</button></div>
+        <ul class="more-dates" id="moreDates"></ul>
+        <button type="button" class="linkish" id="addDate">+ Same item with another date</button>
       </div>
       <div class="tools"><button class="btn primary" type="submit" id="saveBtn">Save item</button><button class="btn" type="button" data-close>Cancel</button></div>
     </form>
@@ -356,6 +358,7 @@
     <div class="tools">
       <button class="btn primary" id="useOne">Used one</button>
       <button class="btn" id="editItem">Edit / refill</button>
+      <button class="btn" id="addBatch">Add another date</button>
       <button class="btn danger" id="useAll">Finished</button>
     </div>
     <div class="confirm" id="confirmBox" hidden>
@@ -402,6 +405,6 @@
 <script src="/vendor/qrcode.js"></script>
 <script src="/vendor/jsQR.js"></script>
 <script src="/vendor/zxing.min.js"></script>
-<script src="/app.js?v=2.10"></script>
+<script src="/app.js?v=2.11"></script>
 </body>
 </html>

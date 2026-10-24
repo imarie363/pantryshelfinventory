@@ -65,6 +65,7 @@ The tunnel's status in Cloudflare should turn **Healthy**. Open `https://pantry.
 - **Add item:** name, quantity, where it's stored, best-before date. Tap **Scan barcode** to fill in the name from the product's barcode. Every item gets a QR label: download it, print it, stick it on.
 - **Scan:** a pantry label or a product barcode, with the in-app scanner. The phone's own camera app also opens labels directly.
 - **Blank labels:** download a sheet of 24 blank labels, stick them on containers, and fill in the item the first time you scan one.
+- **Same item, different dates:** one item can hold several best-before dates, say 2 cans for November and 3 for March. In the add form tap **+ Same item with another date**, or open the item and tap **Add another date**. The shelf shows the earliest date; **Used one** takes from the oldest batch first; reminders and reports list each date on its own line.
 - **Household supplies:** toilet paper, detergent and other non-food things. Pick **Household supply** when adding; they need no best-before date. Set **Running low at** (default 1): when **Used one** brings it down to that many, it goes on the shopping list and into the reminder. Switch the shelf between **Food** and **Household** with the buttons at the top.
 - **Where it's kept:** the chips above the shelf (All, Pantry, Fridge, Freezer…) show one place at a time. The phone remembers your choice.
 - **Used one / Finished:** **Used one** takes one off the count. **Finished** asks whether you used it or threw it away, so the History tab can count it.
