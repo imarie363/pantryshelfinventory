@@ -9,7 +9,7 @@
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
-<link rel="stylesheet" href="/styles.css?v=2.9">
+<link rel="stylesheet" href="/styles.css?v=2.10">
 </head>
 <body>
 <svg width="0" height="0" class="visually-hidden" aria-hidden="true">
@@ -92,6 +92,7 @@
 
   <!-- Shelf -->
   <section class="view" id="view-shelf">
+    <div class="places kinds" id="kinds" role="group" aria-label="Show"></div>
     <div class="places" id="places" role="group" aria-label="Show items in" hidden></div>
     <div id="bands" class="bands"></div>
     <p class="muted" id="placeEmpty" hidden></p>
@@ -235,6 +236,8 @@
       <div class="setting-head"><span class="badge"><svg class="icon"><use href="#i-key"/></svg></span><h3>Site admin</h3></div>
       <p class="muted" id="adminStatus">Checking…</p>
       <ul class="people" id="hhList"></ul>
+      <div class="field"><label for="tzPick">Time zone</label><select id="tzPick"></select>
+        <p class="form-note">Reminders, weekly reports and backups go out at these local times, for every household.</p></div>
       <strong class="group-title">Invite codes</strong>
       <p class="muted small">Send a code to a friend so they can create a household. Each code works once, for 14 days.</p>
       <ul class="people" id="inviteList"></ul>
@@ -319,6 +322,10 @@
     <div class="sheet-head"><h3 id="edit-h">Add item</h3><button class="x" data-close aria-label="Close">×</button></div>
     <form id="editForm">
       <p class="form-note" id="editCode"></p>
+      <div class="places kinds" id="f-kind" role="group" aria-label="Kind of item">
+        <button type="button" data-kind="food" aria-pressed="true"><svg class="icon"><use href="#i-jar"/></svg>Food</button>
+        <button type="button" data-kind="supply" aria-pressed="false"><svg class="icon"><use href="#i-home"/></svg>Household supply</button>
+      </div>
       <div class="field"><label for="f-name">What is it?</label>
         <div class="row2 row-code"><input id="f-name" required maxlength="80" placeholder="Rice, tomato sauce, oats…" list="nameHints"><button class="btn" type="button" id="barcodeBtn" aria-label="Scan barcode"><svg class="icon"><use href="#i-barcode"/></svg>Barcode</button></div>
         <p class="form-note" id="barcodeNote" hidden></p>
@@ -327,11 +334,13 @@
       <div class="row2">
         <div class="field"><label for="f-qty">Quantity</label><input id="f-qty" type="number" min="0" step="any" value="1" inputmode="decimal"></div>
         <div class="field"><label for="f-unit">Unit</label>
-          <select id="f-unit"><option>pcs</option><option>cans</option><option>jars</option><option>packs</option><option>bottles</option><option>boxes</option><option>bags</option><option>kg</option><option>g</option><option>L</option></select></div>
+          <select id="f-unit"><option>pcs</option><option>cans</option><option>jars</option><option>packs</option><option>bottles</option><option>boxes</option><option>bags</option><option>rolls</option><option>kg</option><option>g</option><option>L</option></select></div>
       </div>
       <div class="field"><label for="f-place">Where</label>
-        <select id="f-place"><option>Pantry</option><option>Fridge</option><option>Freezer</option><option>Cupboard</option><option>Basement</option></select></div>
-      <div class="field"><label for="f-exp">Best before / use by</label><input id="f-exp" type="date" required>
+        <select id="f-place"><option>Pantry</option><option>Fridge</option><option>Freezer</option><option>Cupboard</option><option>Basement</option><option>Bathroom</option><option>Laundry</option><option>Storage</option></select></div>
+      <div class="field" id="lowBox" hidden><label for="f-low">Running low at</label><input id="f-low" type="number" min="0" step="any" value="1" inputmode="decimal">
+        <p class="form-note">When you're down to this many, it goes on the shopping list and in the reminder.</p></div>
+      <div class="field"><label for="f-exp" id="expLabel">Best before / use by</label><input id="f-exp" type="date" required>
         <div class="chips" id="quick"><button type="button" data-days="7">+1 week</button><button type="button" data-months="1">+1 month</button><button type="button" data-months="3">+3 months</button><button type="button" data-months="6">+6 months</button><button type="button" data-months="12">+1 year</button></div>
       </div>
       <div class="tools"><button class="btn primary" type="submit" id="saveBtn">Save item</button><button class="btn" type="button" data-close>Cancel</button></div>
@@ -393,6 +402,6 @@
 <script src="/vendor/qrcode.js"></script>
 <script src="/vendor/jsQR.js"></script>
 <script src="/vendor/zxing.min.js"></script>
-<script src="/app.js?v=2.9"></script>
+<script src="/app.js?v=2.10"></script>
 </body>
 </html>

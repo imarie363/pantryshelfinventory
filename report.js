@@ -1,8 +1,9 @@
-// The weekly pantry report: an HTML email with a summary, and the same summary as a PDF.
+// The pantry report: an HTML email with a summary, and the same summary as a PDF. The weekly
+// report and the daily reminder email (daily: true, a shorter email) both use it.
 const PDFDocument = require("pdfkit");
 
 const COLORS = { ink: "#1b2216", muted: "#5f6857", line: "#d7ddcf", soft: "#f6f8f3", accent: "#2f5d22", hero: "#234a1a",
-  expired: "#b3261e", expiredBg: "#fbe4e1", soon: "#9a5200", soonBg: "#fdebd0", ok: "#2f6b3a", okBg: "#dfeedd" };
+  expired: "#b3261e", expiredBg: "#fbe4e1", soon: "#9a5200", soonBg: "#fdebd0", ok: "#2f6b3a", okBg: "#dfeedd", low: "#2f5a8a", lowBg: "#e2ebf5" };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const niceDate = (iso) => { const [y, m, d] = iso.split("-").map(Number); return `${d} ${MONTHS[m - 1]} ${y}`; };
@@ -17,19 +18,24 @@ function when(days) {
 }
 const monthLabel = (k) => { const [y, m] = k.split("-").map(Number); return `${MONTHS[m - 1]} ${y}`; };
 
-// items: sorted list with .days; shopping: open entries; history: historySummary() output
-function summarize({ items, shopping, history, days = 7 }) {
+// items: sorted list with .days (everything with a best-before date); supplies: household
+// supplies with .low; shopping: open entries; history: historySummary() output
+function summarize({ items, supplies = [], shopping, history, days = 7 }) {
   const expired = items.filter((i) => i.days < 0);
   const soon = items.filter((i) => i.days >= 0 && i.days <= days);
   const later = items.filter((i) => i.days > days);
+  const food = items.filter((i) => i.kind !== "supply");
   const places = new Map();
-  for (const it of items) { const p = it.place || "Pantry"; if (!places.has(p)) places.set(p, []); places.get(p).push(it); }
+  for (const it of food) { const p = it.place || "Pantry"; if (!places.has(p)) places.set(p, []); places.get(p).push(it); }
   const month = history.months[history.months.length - 1];
-  return { expired, soon, later, places: [...places.entries()].sort((a, b) => b[1].length - a[1].length), month, history, shopping, days, total: items.length };
+  return { expired, soon, later, places: [...places.entries()].sort((a, b) => b[1].length - a[1].length), month, history, shopping, days, total: food.length,
+    supplies, low: supplies.filter((i) => i.low) };
 }
+const countLine = (s) => `${s.total} food item${s.total === 1 ? "" : "s"}${s.supplies.length ? ` · ${s.supplies.length} household suppl${s.supplies.length === 1 ? "y" : "ies"}` : ""}`;
+const lowText = (i) => `${qty(i)} left`;
 
 // ---------- email ----------
-function html(s, { day, appUrl, withBackup }) {
+function html(s, { day, appUrl, withBackup, daily }) {
   const C = COLORS;
   const box = (n, label, color, bg) => `<td width="33%" valign="top" style="padding:4px"><div style="background:${bg};border-radius:12px;padding:14px 12px 12px;height:62px">
     <div style="font:800 28px/1 Arial,sans-serif;color:${color}">${n}</div><div style="font:700 12px/1.3 Arial,sans-serif;color:${color};margin-top:6px">${label}</div></div></td>`;
@@ -43,41 +49,47 @@ function html(s, { day, appUrl, withBackup }) {
   parts.push(section("Use first", useFirst.length
     ? `<table width="100%" cellpadding="0" cellspacing="0">${useFirst.slice(0, 15).map(row).join("")}</table>${useFirst.length > 15 ? `<p style="font:13px Arial,sans-serif;color:${C.muted}">And ${useFirst.length - 15} more in the attached report.</p>` : ""}`
     : `<p style="font:15px Arial,sans-serif;color:${C.ink};margin:6px 0">Nothing expires in the next ${s.days} days.</p>`));
-  parts.push(section("This month", `<p style="font:15px/1.5 Arial,sans-serif;color:${C.ink};margin:6px 0"><b style="color:${C.ok}">${m.used} used</b> and <b style="color:${C.expired}">${m.wasted} thrown away</b>${gone ? ` (${Math.round(m.wasted / gone * 100)}% thrown away)` : ""}.</p>`
+  if (s.low.length) parts.push(section("Running low", `<table width="100%" cellpadding="0" cellspacing="0">${s.low.map((it) => `<tr><td style="padding:9px 0;border-top:1px solid ${C.line};font:700 15px Arial,sans-serif;color:${C.ink}">${esc(it.name)}
+      <div style="font:400 13px Arial,sans-serif;color:${C.muted}">${esc(it.place || "Storage")}</div></td>
+    <td align="right" style="padding:9px 0;border-top:1px solid ${C.line};font:700 13px Arial,sans-serif;color:${C.low};white-space:nowrap">${esc(lowText(it))}</td></tr>`).join("")}</table>`));
+  if (!daily) parts.push(section("This month", `<p style="font:15px/1.5 Arial,sans-serif;color:${C.ink};margin:6px 0"><b style="color:${C.ok}">${m.used} used</b> and <b style="color:${C.expired}">${m.wasted} thrown away</b>${gone ? ` (${Math.round(m.wasted / gone * 100)}% thrown away)` : ""}.</p>`
     + (s.history.topWasted.length ? `<p style="font:13px/1.5 Arial,sans-serif;color:${C.muted};margin:4px 0">Thrown away most lately: ${s.history.topWasted.slice(0, 3).map((w) => esc(w.name)).join(", ")}.</p>` : "")));
-  parts.push(section("On the shelf", `<p style="font:15px/1.6 Arial,sans-serif;color:${C.ink};margin:6px 0">${s.places.map(([p, list]) => `${esc(p)}: <b>${list.length}</b>`).join(" &nbsp;·&nbsp; ") || "The shelf is empty."}</p>`));
+  if (!daily) parts.push(section("On the shelf", `<p style="font:15px/1.6 Arial,sans-serif;color:${C.ink};margin:6px 0">${s.places.map(([p, list]) => `${esc(p)}: <b>${list.length}</b>`).join(" &nbsp;·&nbsp; ") || "The shelf is empty."}</p>`));
   if (s.shopping.length) parts.push(section("Shopping list", `<p style="font:15px/1.6 Arial,sans-serif;color:${C.ink};margin:6px 0">${s.shopping.slice(0, 20).map((e) => esc(e.name)).join(", ")}${s.shopping.length > 20 ? ` and ${s.shopping.length - 20} more` : ""}</p>`));
   return `<!doctype html><html><body style="margin:0;padding:0;background:#eef1ea">
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#eef1ea"><tr><td align="center" style="padding:20px 12px">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden">
 <tr><td style="background:${C.hero};padding:24px">
-  <div style="font:800 24px Arial,sans-serif;color:#f1f6ea">Your pantry this week</div>
-  <div style="font:14px Arial,sans-serif;color:#c3d6b5;margin-top:4px">${esc(niceDate(day))} · ${s.total} item${s.total === 1 ? "" : "s"} on the shelf</div>
+  <div style="font:800 24px Arial,sans-serif;color:#f1f6ea">${daily ? "Your pantry today" : "Your pantry this week"}</div>
+  <div style="font:14px Arial,sans-serif;color:#c3d6b5;margin-top:4px">${esc(niceDate(day))} · ${countLine(s)}</div>
 </td></tr>
 <tr><td style="padding:16px 20px 0"><table width="100%" cellpadding="0" cellspacing="0"><tr>
-  ${box(s.expired.length, "Expired", C.expired, C.expiredBg)}${box(s.soon.length, s.days === 7 ? "Use this week" : `Use within ${s.days} days`, C.soon, C.soonBg)}${box(s.later.length, "Fine for now", C.ok, C.okBg)}
+  ${box(s.expired.length, "Expired", C.expired, C.expiredBg)}${box(s.soon.length, s.days === 7 ? "Use this week" : `Use within ${s.days} days`, C.soon, C.soonBg)}${daily || s.low.length ? box(s.low.length, "Running low", C.low, C.lowBg) : box(s.later.length, "Fine for now", C.ok, C.okBg)}
 </tr></table></td></tr>
 ${parts.join("\n")}
 ${appUrl ? `<tr><td style="padding:24px"><a href="${esc(appUrl)}" style="display:inline-block;background:${C.accent};color:#fff;font:700 15px Arial,sans-serif;text-decoration:none;padding:12px 20px;border-radius:12px">Open the shelf</a></td></tr>` : ""}
 <tr><td style="padding:${appUrl ? "0" : "24px"} 24px 24px;font:13px/1.5 Arial,sans-serif;color:${C.muted}">
-  ${withBackup
+  ${daily
+    ? `Attached: <b>pantry-report-${day}.pdf</b>, the full list to read or print. You get this email on your reminder days; change it in Settings &gt; Daily reminders.`
+    : withBackup
     ? `Attached: <b>pantry-report-${day}.pdf</b>, the full list to read or print, and <b>pantry-backup-${day}.json</b>, your backup. Keep this email: to put the backup back, open Settings &gt; Backups &gt; Restore a backup &gt; Restore from a file.`
     : `Attached: <b>pantry-report-${day}.pdf</b>, the full list to read or print.`}
 </td></tr>
 </table></td></tr></table></body></html>`;
 }
 
-function text(s, { day, appUrl, withBackup }) {
+function text(s, { day, appUrl, withBackup, daily }) {
   const line = (i) => `- ${i.name} (${qty(i)}, ${i.place || "Pantry"}): ${when(i.days)}`;
   const useFirst = [...s.expired, ...s.soon];
   const m = s.month;
   return [
-    `Your pantry this week, ${niceDate(day)}`,
-    `${s.expired.length} expired, ${s.soon.length} to use within ${s.days} days, ${s.later.length} fine for now.`,
+    `Your pantry ${daily ? "today" : "this week"}, ${niceDate(day)}`,
+    `${s.expired.length} expired, ${s.soon.length} to use within ${s.days} days, ${daily ? `${s.low.length} running low` : `${s.later.length} fine for now`}.`,
     useFirst.length ? `Use first:\n${useFirst.map(line).join("\n")}` : `Nothing expires in the next ${s.days} days.`,
-    `This month: ${m.used} used, ${m.wasted} thrown away.`,
+    s.low.length ? `Running low:\n${s.low.map((i) => `- ${i.name} (${lowText(i)}, ${i.place || "Storage"})`).join("\n")}` : "",
+    daily ? "" : `This month: ${m.used} used, ${m.wasted} thrown away.`,
     s.shopping.length ? `Shopping list: ${s.shopping.map((e) => e.name).join(", ")}` : "",
-    withBackup ? "Attached: the full report (PDF) and your backup (JSON). To put the backup back: Settings > Backups > Restore a backup > Restore from a file." : "Attached: the full report (PDF).",
+    daily ? "Attached: the full report (PDF)." : withBackup ? "Attached: the full report (PDF) and your backup (JSON). To put the backup back: Settings > Backups > Restore a backup > Restore from a file." : "Attached: the full report (PDF).",
     appUrl ? `Open the shelf: ${appUrl}` : "",
   ].filter(Boolean).join("\n\n");
 }
@@ -97,12 +109,12 @@ function pdf(s, { day }) {
     // header band
     doc.rect(0, 0, doc.page.width, 110).fill(C.hero);
     doc.fill("#f1f6ea").font("Helvetica-Bold").fontSize(24).text("Pantry report", L, 36);
-    doc.fill("#c3d6b5").font("Helvetica").fontSize(11).text(`${niceDate(day)}  ·  ${s.total} item${s.total === 1 ? "" : "s"} on the shelf`, L, 68);
+    doc.fill("#c3d6b5").font("Helvetica").fontSize(11).text(`${niceDate(day)}  ·  ${countLine(s).replace(" · ", "  ·  ")}`, L, 68);
     doc.y = 130;
 
     // three summary boxes
     const bw = (W - 20) / 3;
-    [[s.expired.length, "Expired", C.expired, C.expiredBg], [s.soon.length, `Use within ${s.days} days`, C.soon, C.soonBg], [s.later.length, "Fine for now", C.ok, C.okBg]]
+    [[s.expired.length, "Expired", C.expired, C.expiredBg], [s.soon.length, `Use within ${s.days} days`, C.soon, C.soonBg], s.low.length ? [s.low.length, "Running low", C.low, C.lowBg] : [s.later.length, "Fine for now", C.ok, C.okBg]]
       .forEach(([n, label, fg, bg], i) => {
         const x = L + i * (bw + 10);
         doc.roundedRect(x, 130, bw, 64, 8).fill(bg);
@@ -151,6 +163,11 @@ function pdf(s, { day }) {
     if (useFirst.length) table(useCols, useFirst);
     else para(`Nothing expires in the next ${s.days} days.`);
 
+    if (s.low.length) {
+      heading("Running low");
+      table([itemCols[0], { title: "WHERE", width: W * 0.36, get: (i) => i.place || "Storage" }, { title: "", width: W * 0.22, align: "right", get: lowText, color: () => C.low }], s.low);
+    }
+
     heading("This month");
     const m = s.month, gone = m.used + m.wasted;
     para(`${m.used} used and ${m.wasted} thrown away${gone ? ` (${Math.round(m.wasted / gone * 100)}% thrown away)` : ""}.`);
@@ -174,7 +191,13 @@ function pdf(s, { day }) {
       heading(`${place} (${list.length})`);
       table(itemCols, list);
     }
-    if (!s.places.length) { heading("On the shelf"); para("The shelf is empty."); }
+    if (!s.places.length) { heading("On the shelf"); para("No food on the shelf."); }
+
+    if (s.supplies.length) {
+      heading(`Household supplies (${s.supplies.length})`);
+      table([itemCols[0], itemCols[1], { title: "WHERE", width: W * 0.2, get: (i) => i.place || "Storage" },
+        { title: "", width: W * 0.22, align: "right", get: (i) => (i.low ? "running low" : "in stock"), color: (i) => (i.low ? C.low : C.ok) }], s.supplies);
+    }
 
     if (s.shopping.length) {
       heading("Shopping list");

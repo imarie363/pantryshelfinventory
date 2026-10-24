@@ -65,6 +65,7 @@ The tunnel's status in Cloudflare should turn **Healthy**. Open `https://pantry.
 - **Add item:** name, quantity, where it's stored, best-before date. Tap **Scan barcode** to fill in the name from the product's barcode. Every item gets a QR label: download it, print it, stick it on.
 - **Scan:** a pantry label or a product barcode, with the in-app scanner. The phone's own camera app also opens labels directly.
 - **Blank labels:** download a sheet of 24 blank labels, stick them on containers, and fill in the item the first time you scan one.
+- **Household supplies:** toilet paper, detergent and other non-food things. Pick **Household supply** when adding; they need no best-before date. Set **Running low at** (default 1): when **Used one** brings it down to that many, it goes on the shopping list and into the reminder. Switch the shelf between **Food** and **Household** with the buttons at the top.
 - **Where it's kept:** the chips above the shelf (All, Pantry, Fridge, Freezer…) show one place at a time. The phone remembers your choice.
 - **Used one / Finished:** **Used one** takes one off the count. **Finished** asks whether you used it or threw it away, so the History tab can count it.
 - **Shopping:** finished items go to the shopping list (untick the box to skip). Add your own items too, tick them off in the shop, then **Clear ticked items**.
@@ -100,6 +101,10 @@ The server makes its own notification keys the first time and keeps them in the 
 ## Email reminders (Gmail)
 
 Set them up in the app: **Settings > Reminders**. You choose on/off, how often (every day, once a week on a chosen day, or once a month on a chosen date), the time, how many days ahead to look, and who gets the email. Admins also set the Gmail account that sends the emails for every household. Changes apply straight away, without a redeploy.
+
+The reminder email looks like the weekly report: what to use first within the look-ahead days (pick 30 days to see a month ahead), what's running low, and the shopping list, with the full report attached as a PDF.
+
+**Time zone:** reminder, report and backup times are local times in the site's time zone. An admin picks it in **Settings > Site admin > Time zone**. Without that it uses `TZ` from `.env`, and Europe/Amsterdam when `TZ` is empty or `UTC`.
 
 1. Turn on 2-Step Verification at https://myaccount.google.com/security.
 2. Create an app password at https://myaccount.google.com/apppasswords (name it `Pantry Shelf`).
