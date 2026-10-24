@@ -70,7 +70,7 @@ function findDates(raw, today = new Date()) {
   each(/(?<![\d.\-/:])(\d{1,2})[.\-/](20\d\d)(?![\d.\-/])/g, (m) => {
     const y = +m[2], mo = +m[1]; if (mo >= 1 && mo <= 12) add(makeDate(y, mo, lastDay(y, mo)), m.index, m[0].length, false);
   });
-  return [...found.values()].sort((a, b) => b.score - a.score || a.expiry.localeCompare(b.expiry)).slice(0, 4).map(({ expiry, text }) => ({ expiry, text }));
+  return [...found.values()].sort((a, b) => b.score - a.score || a.expiry.localeCompare(b.expiry)).slice(0, 4).map(({ expiry, text, score }) => ({ expiry, text, label: score >= 10 }));
 }
 
 // One Tesseract worker, started on first use and stopped after 10 idle minutes to free memory.
