@@ -316,6 +316,11 @@ input::placeholder { color: color-mix(in srgb, var(--muted) 75%, transparent); }
 .kinds button { flex: 1 1 0; justify-content: center; }
 .view > .kinds { margin-bottom: -4px; }
 
+/* ---------- reading a date from a photo ---------- */
+.cam-date { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.cam-date > .btn { align-self: flex-start; }
+.cam-date .icon { width: 18px; height: 18px; }
+
 /* ---------- same item, several dates ---------- */
 .more-dates { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .more-dates:empty { display: none; }

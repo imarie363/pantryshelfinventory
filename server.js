@@ -860,6 +860,15 @@ async function api(req, res, p, me) {
     catch (e) { console.error("Barcode lookup failed:", e.message); return send(res, 502, { error: "Couldn't reach Open Food Facts. Type the name instead." }); }
   }
 
+  // A photo of a best-before date: read the text and return the dates found, best guess first
+  if (p === "/api/ocr/date" && req.method === "POST") {
+    let img;
+    try { img = await readRaw(req, 8 * 1024 * 1024); } catch { return send(res, 413, { error: "That photo is too large." }); }
+    if (img.length < 100) return send(res, 400, { error: "No photo received." });
+    try { return send(res, 200, await require("./dateocr").readDates(img)); }
+    catch (e) { console.error("Reading a date failed:", e.message); return send(res, 500, { error: "Couldn't read the photo. Type the date instead." }); }
+  }
+
   if (p === "/api/recipes" && req.method === "GET") return send(res, 200, await recipeIdeas(h));
 
   if (p === "/api/settings" && req.method === "GET") {

@@ -349,7 +349,7 @@
     $("#f-place").value = it?.place || (editKind === "supply" ? "Storage" : "Pantry");
     $("#f-exp").value = batches ? batches[0].expiry : it?.expiry || "";
     $("#moreDates").replaceChildren(...(batches || []).slice(1).map((b) => dateRow(b.qty, b.expiry)));
-    lastDate = null; datesChanged();
+    lastDate = null; datesChanged(); $("#ocrPick").hidden = true;
     $("#f-low").value = it && Number.isFinite(+it.lowAt) ? +it.lowAt : 1;
     setBarcodeNote(editBarcode ? `Barcode ${editBarcode}` : "");
     if (!$("#editDlg").open) $("#editDlg").showModal();
@@ -386,6 +386,43 @@
     if (b.dataset.days) d.setDate(d.getDate() + Number(b.dataset.days));
     if (b.dataset.months) d.setMonth(d.getMonth() + Number(b.dataset.months));
     (lastDate?.isConnected ? lastDate : $("#f-exp")).value = iso(d);
+  });
+  // Photo of the printed date: the server reads it; typing or picking the date still works as before
+  function photoForOcr(file) {
+    return new Promise((resolve, reject) => {
+      const img = new Image(), url = URL.createObjectURL(file);
+      img.onload = () => {
+        const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+        const cv = document.createElement("canvas"); cv.width = Math.round(img.width * scale); cv.height = Math.round(img.height * scale);
+        const ctx = cv.getContext("2d"); ctx.filter = "grayscale(1) contrast(1.4)"; ctx.drawImage(img, 0, 0, cv.width, cv.height);
+        URL.revokeObjectURL(url); cv.toBlob((b) => (b ? resolve(b) : reject(new Error("Couldn't use that photo."))), "image/jpeg", 0.85);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Couldn't open that photo.")); };
+      img.src = url;
+    });
+  }
+  function useOcrDate(target, expiry) {
+    target.value = expiry; $("#ocrPick").hidden = true;
+    toast(`Best before ${nice(parseDate(expiry), true)}. Check it matches the pack.`);
+  }
+  $("#expPhoto").addEventListener("change", async (e) => {
+    const file = e.target.files?.[0]; e.target.value = ""; if (!file) return;
+    const target = lastDate?.isConnected ? lastDate : $("#f-exp"), pick = $("#ocrPick");
+    pick.hidden = true; toast("Reading the date…");
+    try {
+      const blob = await photoForOcr(file);
+      const res = await fetch("/api/ocr/date", { method: "POST", headers: { "Content-Type": "image/jpeg" }, body: blob, credentials: "same-origin" });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) return showLogin();
+      if (!res.ok) throw new Error(data.error || "Couldn't read the photo.");
+      const dates = data.dates || [];
+      if (!dates.length) return toast("No date found. Try closer, with the date filling the photo, or type it.");
+      if (dates.length === 1) return useOcrDate(target, dates[0].expiry);
+      // Several dates on the pack (packed on, best before…): let them pick
+      pick.replaceChildren(...dates.map((d) => el("button", { type: "button", onclick: () => useOcrDate(target, d.expiry) }, nice(parseDate(d.expiry), true))));
+      pick.hidden = false;
+      toast("Found more than one date. Tap the best-before date.");
+    } catch (err) { toast(err.message); }
   });
   async function saveItem(id, data) {
     const res = await api("PUT", `/api/items/${id}`, data);
